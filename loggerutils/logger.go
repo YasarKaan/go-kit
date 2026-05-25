@@ -2,11 +2,14 @@ package loggerutils
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/YasarKaan/go-kit/enums"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
@@ -14,6 +17,26 @@ var (
 	sensitiveKvPattern   = regexp.MustCompile(`(?i)(password|token|secret|credential|apikey|api_key|authorization|private_key|otp|pin|cvv)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)`)
 	crlfPattern          = regexp.MustCompile(`[\r\n]+`)
 )
+
+// InitLogger configures the global logger to write to a daily-archived rolling file.
+// If alsoStdout is true, logs are simultaneously printed to stdout.
+func InitLogger(filePath string, maxSizeMB int, maxBackups int, maxAgeDays int, compress bool, alsoStdout bool) {
+	rotator := &lumberjack.Logger{
+		Filename:   filePath,
+		MaxSize:    maxSizeMB,  // Megabytes before rotating
+		MaxBackups: maxBackups,  // Maximum number of old log files to retain
+		MaxAge:     maxAgeDays,   // Maximum number of days to retain old log files
+		Compress:   compress,   // Whether to compress (gzip) rotated files
+	}
+
+	var writer io.Writer = rotator
+	if alsoStdout {
+		writer = io.MultiWriter(os.Stdout, rotator)
+	}
+
+	log.SetOutput(writer)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+}
 
 // Sanitize checks for sensitive parameters in strings and masks them, and removes CRLF to prevent log injection.
 func Sanitize(message string) string {

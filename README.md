@@ -41,6 +41,11 @@ import "github.com/YasarKaan/go-kit/loggerutils"
 
 // Automatically sanitizes CRLFs and masks sensitive variables/JSON
 loggerutils.Info("User logged in with password: {}", "mySecretPassword123") // masks to "mySecretPassword123" -> "***"
+
+// Optional: Configure daily rolling file archiving & rotation (using lumberjack)
+// InitLogger(filePath, maxSizeMB, maxBackups, maxAgeDays, compress, alsoStdout)
+loggerutils.InitLogger("/var/log/app.log", 10, 3, 7, true, true)
+
 ```
 
 ### 4. `dateutils` (Business Day & Calendar Calculations)
