@@ -285,8 +285,9 @@ func SendRequest(ctx context.Context, urlStr string, method enums.HttpMethod, he
 	return executeRequest(ctx, client, urlStr, method, headers, body, contentType)
 }
 
-// SendRequestWithoutSSL sends HTTP request skipping SSL certificate verification.
-func SendRequestWithoutSSL(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
+// DangerousSendRequestWithoutSSL sends HTTP request skipping SSL certificate verification.
+// WARNING: This is insecure and should only be used in dev/test environments.
+func DangerousSendRequestWithoutSSL(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
 	client := getClient(true)
 	return executeRequest(ctx, client, urlStr, method, headers, body, contentType)
 }
@@ -301,9 +302,30 @@ func getExponentialBackoffWithJitter(attempt int) time.Duration {
 }
 
 // sendWithRetries implements retry logic for HTTP execution.
-func sendWithRetries(ctx context.Context, urlStr string, action func() (*HttpResponse, error)) (*HttpResponse, error) {
+// To prevent double-transaction bugs, non-idempotent methods (POST, PATCH) are not retried unless an Idempotency-Key header is supplied.
+func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, action func() (*HttpResponse, error)) (*HttpResponse, error) {
 	var lastErr error
+
+	// Determine idempotency safety
+	methodUpper := strings.ToUpper(string(method))
+	isIdempotent := methodUpper == "GET" || methodUpper == "PUT" || methodUpper == "DELETE" || methodUpper == "HEAD" || methodUpper == "OPTIONS"
+
+	hasIdempotencyKey := false
+	if headers != nil {
+		for k := range headers {
+			if strings.ToLower(k) == "idempotency-key" {
+				hasIdempotencyKey = true
+				break
+			}
+		}
+	}
+
+	canRetry := isIdempotent || hasIdempotencyKey
 	maxRetries := 4
+	if !canRetry {
+		maxRetries = 1 // Limit to a single execution for safety
+		loggerutils.Info("[HTTP-CLIENT] Request is non-idempotent ({}). Automatic retries are disabled unless an Idempotency-Key header is supplied.", methodUpper)
+	}
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// Respect context cancellation/timeout
@@ -311,7 +333,10 @@ func sendWithRetries(ctx context.Context, urlStr string, action func() (*HttpRes
 			return nil, err
 		}
 
-		loggerutils.Info("[HTTP-CLIENT] Attempt {}/{} for request to URL: {}", attempt, maxRetries, urlStr)
+		if maxRetries > 1 {
+			loggerutils.Info("[HTTP-CLIENT] Attempt {}/{} for request to URL: {}", attempt, maxRetries, urlStr)
+		}
+		
 		resp, err := action()
 		if err == nil {
 			return resp, nil
@@ -329,6 +354,9 @@ func sendWithRetries(ctx context.Context, urlStr string, action func() (*HttpRes
 			}
 			// Rate limiting: wait 15 seconds
 			if statusCode == 429 {
+				if attempt >= maxRetries {
+					break
+				}
 				loggerutils.Warn("[HTTP-CLIENT] Rate limited. Status: 429. Waiting 15 seconds.")
 				select {
 				case <-ctx.Done():
@@ -366,21 +394,24 @@ func sendWithRetries(ctx context.Context, urlStr string, action func() (*HttpRes
 		}
 	}
 
-	loggerutils.Error("[HTTP-CLIENT] Request to {} failed after {} attempts.", urlStr, maxRetries)
+	if maxRetries > 1 {
+		loggerutils.Error("[HTTP-CLIENT] Request to {} failed after {} attempts.", urlStr, maxRetries)
+	}
 	return nil, lastErr
 }
 
 // SendRequestWithRetries performs request with retries.
 func SendRequestWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, func() (*HttpResponse, error) {
+	return sendWithRetries(ctx, urlStr, method, headers, func() (*HttpResponse, error) {
 		return SendRequest(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
 	})
 }
 
-// SendRequestWithoutSSLWithRetries performs insecure request with retries.
-func SendRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, func() (*HttpResponse, error) {
-		return SendRequestWithoutSSL(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
+// DangerousSendRequestWithoutSSLWithRetries performs insecure request with retries.
+// WARNING: This is insecure and should only be used in dev/test environments.
+func DangerousSendRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
+	return sendWithRetries(ctx, urlStr, method, headers, func() (*HttpResponse, error) {
+		return DangerousSendRequestWithoutSSL(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
 	})
 }
 
@@ -474,23 +505,25 @@ func SendMultipartRequest(ctx context.Context, urlStr string, headers map[string
 	return executeMultipartRequest(ctx, client, urlStr, headers, formFields, fileFieldName, file)
 }
 
-// SendMultipartRequestWithoutSSL sends multipart data without SSL validation.
-func SendMultipartRequestWithoutSSL(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
+// DangerousSendMultipartRequestWithoutSSL sends multipart data without SSL validation.
+// WARNING: This is insecure and should only be used in dev/test environments.
+func DangerousSendMultipartRequestWithoutSSL(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
 	client := getClient(true)
 	return executeMultipartRequest(ctx, client, urlStr, headers, formFields, fileFieldName, file)
 }
 
 // SendMultipartRequestWithRetries sends multipart data with retries.
 func SendMultipartRequestWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, func() (*HttpResponse, error) {
+	return sendWithRetries(ctx, urlStr, enums.MethodPost, headers, func() (*HttpResponse, error) {
 		return SendMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
 	})
 }
 
-// SendMultipartRequestWithoutSSLWithRetries sends multipart data without SSL validation with retries.
-func SendMultipartRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, func() (*HttpResponse, error) {
-		return SendMultipartRequestWithoutSSL(ctx, urlStr, headers, formFields, fileFieldName, file)
+// DangerousSendMultipartRequestWithoutSSLWithRetries sends multipart data without SSL validation with retries.
+// WARNING: This is insecure and should only be used in dev/test environments.
+func DangerousSendMultipartRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
+	return sendWithRetries(ctx, urlStr, enums.MethodPost, headers, func() (*HttpResponse, error) {
+		return DangerousSendMultipartRequestWithoutSSL(ctx, urlStr, headers, formFields, fileFieldName, file)
 	})
 }
 

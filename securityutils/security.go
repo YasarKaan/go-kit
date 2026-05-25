@@ -125,10 +125,13 @@ func HashMD5(input string) string {
 }
 
 // GenerateSecureToken generates a 32-byte secure random URL-safe token.
-func GenerateSecureToken() string {
+func GenerateSecureToken() (string, error) {
 	token := make([]byte, 32)
-	_, _ = rand.Read(token)
-	return base64.RawURLEncoding.EncodeToString(token)
+	_, err := rand.Read(token)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(token), nil
 }
 
 // GenerateUUID generates standard UUID.
@@ -137,14 +140,17 @@ func GenerateUUID() string {
 }
 
 // GenerateSecurePw generates a secure password of a given length.
-func GenerateSecurePw(length int) string {
+func GenerateSecurePw(length int) (string, error) {
 	chars := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+"
 	var pw strings.Builder
 	for i := 0; i < length; i++ {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", err
+		}
 		pw.WriteByte(chars[n.Int64()])
 	}
-	return pw.String()
+	return pw.String(), nil
 }
 
 // GenerateHMAC generates HMAC-SHA256 hex string.
@@ -155,10 +161,13 @@ func GenerateHMAC(data, key string) string {
 }
 
 // GenerateSalt generates a 16-byte random salt base64 string.
-func GenerateSalt() string {
+func GenerateSalt() (string, error) {
 	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-	return base64.StdEncoding.EncodeToString(salt)
+	_, err := rand.Read(salt)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(salt), nil
 }
 
 // HashPw hashes password using bcrypt.
@@ -177,11 +186,14 @@ func VerifyPw(hashedPw, pw string) bool {
 }
 
 // GenerateRandomNumber generates a random numeric string of given length.
-func GenerateRandomNumber(length int) string {
+func GenerateRandomNumber(length int) (string, error) {
 	var num strings.Builder
 	for i := 0; i < length; i++ {
-		n, _ := rand.Int(rand.Reader, big.NewInt(10))
+		n, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
 		num.WriteString(fmt.Sprintf("%d", n.Int64()))
 	}
-	return num.String()
+	return num.String(), nil
 }

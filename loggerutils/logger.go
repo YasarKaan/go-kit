@@ -1,6 +1,7 @@
 package loggerutils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -80,31 +81,82 @@ func shouldLog(level enums.LogLevel) bool {
 	return prio >= prioConfig
 }
 
+// logEntry is the structured log line emitted as JSON.
+// MarshalJSON guarantees field order: time → level → message → (extra correlation fields flat).
+type logEntry struct {
+	Time    string
+	Level   string
+	Message string
+	Extra   map[string]any // correlation/tracing fields — flattened at top level
+}
+
+func (e logEntry) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+
+	writeKV := func(key string, val any) error {
+		k, err := json.Marshal(key)
+		if err != nil {
+			return err
+		}
+		v, err := json.Marshal(val)
+		if err != nil {
+			return err
+		}
+		buf.Write(k)
+		buf.WriteByte(':')
+		buf.Write(v)
+		return nil
+	}
+
+	// Fixed fields always come first in a deterministic order.
+	if err := writeKV("time", e.Time); err != nil {
+		return nil, err
+	}
+	buf.WriteByte(',')
+	if err := writeKV("level", e.Level); err != nil {
+		return nil, err
+	}
+	buf.WriteByte(',')
+	if err := writeKV("message", e.Message); err != nil {
+		return nil, err
+	}
+
+	// Flatten extra correlation fields at the top level after the core fields.
+	for k, v := range e.Extra {
+		buf.WriteByte(',')
+		if err := writeKV(k, v); err != nil {
+			return nil, err
+		}
+	}
+
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
 func writeLog(ctx context.Context, level enums.LogLevel, msg string) {
 	if !shouldLog(level) {
 		return
 	}
 
-	entry := map[string]any{
-		"time":    time.Now().Format(time.RFC3339),
-		"level":   string(level),
-		"message": msg,
+	entry := logEntry{
+		Time:    time.Now().Format(time.RFC3339),
+		Level:   string(level),
+		Message: msg,
 	}
 
-	// Flatten trace/correlation fields directly into the top-level log object
+	// Attach correlation/tracing fields from context if present.
 	if ctx != nil {
-		if fields, ok := ctx.Value(logCtxKey{}).(map[string]any); ok {
-			for k, v := range fields {
-				entry[k] = v
-			}
+		if fields, ok := ctx.Value(logCtxKey{}).(map[string]any); ok && len(fields) > 0 {
+			entry.Extra = fields
 		}
 	}
 
-	bytes, err := json.Marshal(entry)
+	b, err := json.Marshal(entry)
 	if err == nil {
-		log.Println(string(bytes))
+		log.Println(string(b))
 	} else {
-		// Fallback safe string output in case JSON marshal fails
+		// Fallback safe string output in case JSON marshal fails.
 		log.Printf(`{"time":"%s","level":"%s","message":"%s"}`+"\n",
 			time.Now().Format(time.RFC3339),
 			level,

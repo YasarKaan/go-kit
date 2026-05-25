@@ -68,3 +68,45 @@ func TestSendRequestWithCancel(t *testing.T) {
 		t.Logf("request failed as expected: %v", err)
 	}
 }
+
+func TestIdempotencyRetries(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		callCount++
+		rw.WriteHeader(http.StatusInternalServerError) // Always fail to trigger retries
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// 1. GET request (idempotent) -> should retry 4 times
+	callCount = 0
+	_, err := SendRequestWithRetries(ctx, server.URL, enums.MethodGet, nil, nil)
+	if err == nil {
+		t.Fatal("expected error from failing server")
+	}
+	if callCount != 4 {
+		t.Errorf("expected GET to retry 4 times, got: %d", callCount)
+	}
+
+	// 2. POST request (non-idempotent) -> should retry only 1 time (no idempotency key)
+	callCount = 0
+	_, err = SendRequestWithRetries(ctx, server.URL, enums.MethodPost, nil, nil)
+	if err == nil {
+		t.Fatal("expected error from failing server")
+	}
+	if callCount != 1 {
+		t.Errorf("expected POST without idempotency key to run exactly 1 time, got: %d", callCount)
+	}
+
+	// 3. POST request with Idempotency-Key -> should retry 4 times
+	callCount = 0
+	headers := map[string]string{"Idempotency-Key": "unique-uuid"}
+	_, err = SendRequestWithRetries(ctx, server.URL, enums.MethodPost, headers, nil)
+	if err == nil {
+		t.Fatal("expected error from failing server")
+	}
+	if callCount != 4 {
+		t.Errorf("expected POST with idempotency key to retry 4 times, got: %d", callCount)
+	}
+}
