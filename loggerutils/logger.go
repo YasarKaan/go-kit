@@ -1,6 +1,7 @@
 package loggerutils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,24 @@ import (
 	"github.com/YasarKaan/go-kit/enums"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+type logCtxKey struct{}
+
+// WithFields appends structured correlation/tracing fields to the context.
+func WithFields(ctx context.Context, fields map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	existing, _ := ctx.Value(logCtxKey{}).(map[string]any)
+	merged := make(map[string]any)
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for k, v := range fields {
+		merged[k] = v
+	}
+	return context.WithValue(ctx, logCtxKey{}, merged)
+}
 
 var (
 	sensitiveJsonPattern = regexp.MustCompile(`(?i)"([^"]*(?:password|token|secret|credential|apikey|api_key|authorization|private_key|otp|pin|cvv)[^"]*)"\s*:\s*(?:"[^"]*"|[^,\}\]\s]+)`)
@@ -61,21 +80,24 @@ func shouldLog(level enums.LogLevel) bool {
 	return prio >= prioConfig
 }
 
-type logEntry struct {
-	Time    string `json:"time"`
-	Level   string `json:"level"`
-	Message string `json:"message"`
-}
-
-func writeLog(level enums.LogLevel, msg string) {
+func writeLog(ctx context.Context, level enums.LogLevel, msg string) {
 	if !shouldLog(level) {
 		return
 	}
 
-	entry := logEntry{
-		Time:    time.Now().Format(time.RFC3339),
-		Level:   string(level),
-		Message: msg,
+	entry := map[string]any{
+		"time":    time.Now().Format(time.RFC3339),
+		"level":   string(level),
+		"message": msg,
+	}
+
+	// Flatten trace/correlation fields directly into the top-level log object
+	if ctx != nil {
+		if fields, ok := ctx.Value(logCtxKey{}).(map[string]any); ok {
+			for k, v := range fields {
+				entry[k] = v
+			}
+		}
 	}
 
 	bytes, err := json.Marshal(entry)
@@ -205,35 +227,67 @@ func formatMessage(msg string, args []any) string {
 
 // Debug logs a debug level message.
 func Debug(message string, args ...any) {
-	writeLog(enums.LevelDebug, formatMessage(message, args))
+	writeLog(nil, enums.LevelDebug, formatMessage(message, args))
 }
 
 // Info logs an info level message.
 func Info(message string, args ...any) {
-	writeLog(enums.LevelInfo, formatMessage(message, args))
+	writeLog(nil, enums.LevelInfo, formatMessage(message, args))
 }
 
 // Warn logs a warning level message.
 func Warn(message string, args ...any) {
-	writeLog(enums.LevelWarn, formatMessage(message, args))
+	writeLog(nil, enums.LevelWarn, formatMessage(message, args))
 }
 
 // Error logs an error level message.
 func Error(message string, args ...any) {
-	writeLog(enums.LevelError, formatMessage(message, args))
+	writeLog(nil, enums.LevelError, formatMessage(message, args))
 }
 
 // ErrorWithThrowable logs an error with a details error struct.
 func ErrorWithThrowable(message string, err error) {
 	msg := Sanitize(message)
 	if err != nil {
-		writeLog(enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
+		writeLog(nil, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
 	} else {
-		writeLog(enums.LevelError, msg)
+		writeLog(nil, enums.LevelError, msg)
 	}
 }
 
 // PushLog is a backward-compatible method matching the Java signature.
 func PushLog(level enums.LogLevel, message string, args ...any) {
-	writeLog(level, formatMessage(message, args))
+	writeLog(nil, level, formatMessage(message, args))
+}
+
+// Context-Aware Logging Helpers
+
+// DebugContext logs a debug message with correlation context.
+func DebugContext(ctx context.Context, message string, args ...any) {
+	writeLog(ctx, enums.LevelDebug, formatMessage(message, args))
+}
+
+// InfoContext logs an info message with correlation context.
+func InfoContext(ctx context.Context, message string, args ...any) {
+	writeLog(ctx, enums.LevelInfo, formatMessage(message, args))
+}
+
+// WarnContext logs a warning message with correlation context.
+func WarnContext(ctx context.Context, message string, args ...any) {
+	writeLog(ctx, enums.LevelWarn, formatMessage(message, args))
+}
+
+// ErrorContext logs an error message with correlation context.
+func ErrorContext(ctx context.Context, message string, args ...any) {
+	writeLog(ctx, enums.LevelError, formatMessage(message, args))
+}
+
+// ErrorWithThrowableContext logs an error with correlation context and error details.
+func ErrorWithThrowableContext(ctx context.Context, message string, err error) {
+	msg := Sanitize(message)
+	if err != nil {
+		writeLog(ctx, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
+	} else {
+		writeLog(ctx, enums.LevelError, msg)
+	}
 }

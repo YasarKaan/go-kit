@@ -78,6 +78,8 @@ func (m *MultipartFile) SaveToFile(dstPath string) error {
 }
 
 // FromFile creates a memory-loaded MultipartFile from a local file path.
+// WARNING: This loads the entire file content into memory. For large files,
+// use FromFileStream instead to avoid Out-Of-Memory (OOM) exceptions.
 func FromFile(filePath string, contentType string) (*MultipartFile, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

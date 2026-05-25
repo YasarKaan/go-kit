@@ -2,6 +2,7 @@ package loggerutils
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -80,21 +81,68 @@ func TestLogLevelFilteringAndJSON(t *testing.T) {
 	}
 
 	// Verify it's valid JSON structured format
-	var entry logEntry
+	var entry map[string]any
 	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &entry)
 	if err != nil {
 		t.Fatalf("logged output is not valid JSON: %v. Output: %s", err, output)
 	}
 
-	if entry.Level != string(enums.LevelWarn) {
-		t.Errorf("expected log level WARN, got: %s", entry.Level)
+	if entry["level"] != string(enums.LevelWarn) {
+		t.Errorf("expected log level WARN, got: %s", entry["level"])
 	}
 
-	if entry.Message != "This warn message should appear" {
-		t.Errorf("expected log message match, got: %s", entry.Message)
+	if entry["message"] != "This warn message should appear" {
+		t.Errorf("expected log message match, got: %s", entry["message"])
 	}
 
-	if entry.Time == "" {
+	if entry["time"] == nil || entry["time"] == "" {
 		t.Error("expected non-empty timestamp field")
+	}
+}
+
+func TestStructuredLoggingFields(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr) // Reset
+
+	// Reset log level
+	SetLogLevel(enums.LevelDebug)
+
+	// Create context with fields
+	ctx := context.Background()
+	ctx = WithFields(ctx, map[string]any{
+		"requestId": "req-12345",
+		"traceId":   "trace-9999",
+		"userId":    "user-kaan",
+	})
+
+	InfoContext(ctx, "Accessing dashboard")
+
+	output := buf.String()
+
+	var data map[string]any
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &data)
+	if err != nil {
+		t.Fatalf("logged output is not valid JSON: %v", err)
+	}
+
+	if data["message"] != "Accessing dashboard" {
+		t.Errorf("expected message 'Accessing dashboard', got: %v", data["message"])
+	}
+
+	if data["requestId"] != "req-12345" {
+		t.Errorf("expected requestId 'req-12345', got: %v", data["requestId"])
+	}
+
+	if data["traceId"] != "trace-9999" {
+		t.Errorf("expected traceId 'trace-9999', got: %v", data["traceId"])
+	}
+
+	if data["userId"] != "user-kaan" {
+		t.Errorf("expected userId 'user-kaan', got: %v", data["userId"])
+	}
+
+	if data["level"] != "INFO" {
+		t.Errorf("expected level 'INFO', got: %v", data["level"])
 	}
 }
