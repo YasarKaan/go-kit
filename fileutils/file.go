@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// MultipartFile represents the memory representation of a file,
+// MultipartFile represents the memory representation or streaming source of a file,
 // mimicking Spring's MultipartFile in Go.
 type MultipartFile struct {
 	Name        string
@@ -15,6 +15,7 @@ type MultipartFile struct {
 	ContentType string
 	Size        int64
 	Content     []byte
+	Reader      io.Reader // Optional streaming source to avoid loading entire file into memory
 }
 
 func (m *MultipartFile) GetOriginalFilename() string {
@@ -26,7 +27,7 @@ func (m *MultipartFile) GetContentType() string {
 }
 
 func (m *MultipartFile) IsEmpty() bool {
-	return len(m.Content) == 0
+	return m.Size == 0
 }
 
 func (m *MultipartFile) GetSize() int64 {
@@ -34,14 +35,49 @@ func (m *MultipartFile) GetSize() int64 {
 }
 
 func (m *MultipartFile) GetBytes() []byte {
+	if len(m.Content) == 0 && m.Reader != nil {
+		// Fallback: if it's a stream, read it once (note: this consumes the stream)
+		if closer, ok := m.Reader.(io.Closer); ok {
+			defer closer.Close()
+		}
+		bytes, err := io.ReadAll(m.Reader)
+		if err == nil {
+			m.Content = bytes
+		}
+	}
 	return m.Content
 }
 
 func (m *MultipartFile) GetReader() io.Reader {
+	if m.Reader != nil {
+		return m.Reader
+	}
 	return bytes.NewReader(m.Content)
 }
 
-// FromFile creates a MultipartFile from a local file path.
+// SaveToFile saves the multipart file content to the target destination path using streaming io.Copy.
+// This is memory-safe (OOM-free) even for large files.
+func (m *MultipartFile) SaveToFile(dstPath string) error {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+		return err
+	}
+
+	dstFile, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	srcReader := m.GetReader()
+	if closer, ok := srcReader.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	_, err = io.Copy(dstFile, srcReader)
+	return err
+}
+
+// FromFile creates a memory-loaded MultipartFile from a local file path.
 func FromFile(filePath string, contentType string) (*MultipartFile, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -65,5 +101,28 @@ func FromFile(filePath string, contentType string) (*MultipartFile, error) {
 		ContentType: contentType,
 		Size:        stat.Size(),
 		Content:     content,
+	}, nil
+}
+
+// FromFileStream creates a streaming (memory-safe) MultipartFile from a local file path.
+// Callers should note that the underlying file remains open for reading via GetReader().
+func FromFileStream(filePath string, contentType string) (*MultipartFile, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+
+	return &MultipartFile{
+		Name:        stat.Name(),
+		Filename:    filepath.Base(filePath),
+		ContentType: contentType,
+		Size:        stat.Size(),
+		Reader:      file,
 	}, nil
 }

@@ -95,21 +95,6 @@ decrypted, _ := securityutils.Decrypt(encrypted, key)
 isVerified := securityutils.IsFromGateway(httpRequest)
 ```
 
-### 7. `logingestorclient` (RabbitMQ Audit Trails)
-A context-aware RabbitMQ client helper to log session flows and mission steps for distributed auditing.
-```go
-import "github.com/YasarKaan/go-kit/logingestorclient"
-
-// Initialize queue connection
-logingestorclient.Initialize("localhost", 5672, "audit-exchange", "audit-queue", "audit-route")
-
-// Start a mission step, returns UUID and updated context
-missionId, newCtx := logingestorclient.StartTheMission(ctx, "ImportAction", "Importing templates", 1)
-
-// Finalize mission step
-logingestorclient.FinalizeTheMission(newCtx, "operation-uuid-123", "Bearer auth-token")
-```
-
 ---
 
 ## Installation

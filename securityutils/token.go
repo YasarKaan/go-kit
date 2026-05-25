@@ -39,8 +39,8 @@ type Claims struct {
 	TokenRefId  string `json:"tokenRefId"`
 }
 
-// DecodeToken decodes the payload of a JWT token without validating the signature (unverified decode).
-func DecodeToken(token string) *Claims {
+// DecodeTokenUnverified decodes the payload of a JWT token without validating the signature (unverified decode).
+func DecodeTokenUnverified(token string) *Claims {
 	if token == "" {
 		return nil
 	}
@@ -106,8 +106,8 @@ func DecodeToken(token string) *Claims {
 	return claims
 }
 
-// DecodeTokenFromRequest resolves claims from gateway headers or fallback to Authorization header.
-func DecodeTokenFromRequest(req *http.Request) *Claims {
+// DecodeTokenFromRequestUnverified resolves claims from gateway headers or fallback to Authorization header without signature verification on fallback.
+func DecodeTokenFromRequestUnverified(req *http.Request) *Claims {
 	if req == nil {
 		return nil
 	}
@@ -123,7 +123,7 @@ func DecodeTokenFromRequest(req *http.Request) *Claims {
 		loggerutils.Warn("Gateway header signature verification failed")
 	}
 
-	return DecodeToken(req.Header.Get("Authorization"))
+	return DecodeTokenUnverified(req.Header.Get("Authorization"))
 }
 
 // IsFromGateway returns true if request carries verified gateway headers.

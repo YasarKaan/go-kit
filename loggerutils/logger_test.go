@@ -1,9 +1,15 @@
 package loggerutils
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/YasarKaan/go-kit/enums"
 )
 
 func TestSanitize(t *testing.T) {
@@ -47,5 +53,48 @@ func TestInitLogger(t *testing.T) {
 	// Verify file exists
 	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
 		t.Error("expected log file to be created, but it does not exist")
+	}
+}
+
+func TestLogLevelFilteringAndJSON(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr) // Reset
+
+	// Configure level to Warn
+	SetLogLevel(enums.LevelWarn)
+
+	// info should be filtered out
+	Info("This info message should not appear")
+
+	// warn should be printed
+	Warn("This warn message should appear")
+
+	output := buf.String()
+	if strings.Contains(output, "This info message should not appear") {
+		t.Error("Info message printed despite minimum level set to WARN")
+	}
+
+	if !strings.Contains(output, "This warn message should appear") {
+		t.Fatal("Warn message not printed when level was set to WARN")
+	}
+
+	// Verify it's valid JSON structured format
+	var entry logEntry
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &entry)
+	if err != nil {
+		t.Fatalf("logged output is not valid JSON: %v. Output: %s", err, output)
+	}
+
+	if entry.Level != string(enums.LevelWarn) {
+		t.Errorf("expected log level WARN, got: %s", entry.Level)
+	}
+
+	if entry.Message != "This warn message should appear" {
+		t.Errorf("expected log message match, got: %s", entry.Message)
+	}
+
+	if entry.Time == "" {
+		t.Error("expected non-empty timestamp field")
 	}
 }

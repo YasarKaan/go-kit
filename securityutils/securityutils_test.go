@@ -66,13 +66,29 @@ func TestGenerateTokens(t *testing.T) {
 	}
 }
 
+func TestBcryptPasswordHashing(t *testing.T) {
+	pw := "SecretPassword123!"
+	hashed, err := HashPw(pw)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+
+	if !VerifyPw(hashed, pw) {
+		t.Error("expected password verification to succeed")
+	}
+
+	if VerifyPw(hashed, "wrong_password") {
+		t.Error("expected password verification to fail for wrong password")
+	}
+}
+
 func TestJWTDecode(t *testing.T) {
 	// Sample JWT payload: {"tenantId": "t1", "sub": "u1", "schemaName": "s1", "sid": "sess1"}
 	payload := `{"tenantId": "t1", "sub": "u1", "schemaName": "s1", "sid": "sess1"}`
 	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
 	token := "header." + encodedPayload + ".signature"
 
-	claims := DecodeToken(token)
+	claims := DecodeTokenUnverified(token)
 	if claims == nil {
 		t.Fatal("expected claims to be decoded")
 	}
@@ -105,7 +121,7 @@ func TestGatewayVerification(t *testing.T) {
 		t.Error("expected gateway signature verification to succeed")
 	}
 
-	claims := DecodeTokenFromRequest(req)
+	claims := DecodeTokenFromRequestUnverified(req)
 	if claims == nil || claims.SchemaName != "s1" || claims.UserId != "u1" {
 		t.Errorf("failed to decode claims from request, got: %+v", claims)
 	}

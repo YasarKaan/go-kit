@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // GenerateAESKey generates a 256-bit AES key.
@@ -160,9 +161,19 @@ func GenerateSalt() string {
 	return base64.StdEncoding.EncodeToString(salt)
 }
 
-// HashPw hashes password with salt.
-func HashPw(pw, salt string) string {
-	return HashSHA256(pw + salt)
+// HashPw hashes password using bcrypt.
+func HashPw(pw string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+// VerifyPw checks if a password matches its bcrypt hash.
+func VerifyPw(hashedPw, pw string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPw), []byte(pw))
+	return err == nil
 }
 
 // GenerateRandomNumber generates a random numeric string of given length.
