@@ -68,6 +68,12 @@ response, err := httputils.SendRequestWithRetries("https://api.example.com/data"
 if err == nil {
 	println(response.Body)
 }
+
+// Or request returning parsed JSON response directly as map[string]any
+responseMap, err := httputils.SendRequestWithRetriesForMap("https://api.example.com/data", enums.MethodPost, nil, myPayload)
+if err == nil {
+	println(responseMap["status"])
+}
 ```
 
 ### 6. `securityutils` (Crypto, Hashes, & JWT claims)

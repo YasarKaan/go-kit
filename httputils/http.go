@@ -17,6 +17,7 @@ import (
 	"github.com/YasarKaan/go-kit/enums"
 	"github.com/YasarKaan/go-kit/exceptions"
 	"github.com/YasarKaan/go-kit/fileutils"
+	"github.com/YasarKaan/go-kit/loggerutils"
 )
 
 type HttpResponse struct {
@@ -204,7 +205,8 @@ func executeRequest(client *http.Client, urlStr string, method enums.HttpMethod,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, exceptions.NewCustomWebServerException(500, fmt.Sprintf("HTTP request failed: %v", err), nil)
+		loggerutils.Error("HTTP request to {} failed: {}", urlStr, err.Error())
+		return nil, exceptions.NewCustomWebServerException(500, "HTTP request failed.", nil)
 	}
 	defer resp.Body.Close()
 
@@ -264,6 +266,7 @@ func sendWithRetries(urlStr string, action func() (*HttpResponse, error)) (*Http
 	maxRetries := 4
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		loggerutils.Info("[HTTP-CLIENT] Attempt {}/{} for request to URL: {}", attempt, maxRetries, urlStr)
 		resp, err := action()
 		if err == nil {
 			return resp, nil
@@ -276,10 +279,12 @@ func sendWithRetries(urlStr string, action func() (*HttpResponse, error)) (*Http
 			statusCode := webErr.ErrorCode
 			// Non-retriable client errors
 			if statusCode >= 400 && statusCode < 500 && statusCode != 429 {
+				loggerutils.Error("[HTTP-CLIENT] Non-retriable client error. Status: {}. Failing immediately.", statusCode)
 				return nil, err
 			}
 			// Rate limiting: wait 15 seconds
 			if statusCode == 429 {
+				loggerutils.Warn("[HTTP-CLIENT] Rate limited. Status: 429. Waiting 15 seconds.")
 				time.Sleep(15 * time.Second)
 				continue
 			}
@@ -289,6 +294,7 @@ func sendWithRetries(urlStr string, action func() (*HttpResponse, error)) (*Http
 					break
 				}
 				delay := getExponentialBackoffWithJitter(attempt)
+				loggerutils.Warn("[HTTP-CLIENT] Retriable server error. Status: {}. Waiting for {}ms.", statusCode, delay.Milliseconds())
 				time.Sleep(delay)
 				continue
 			}
@@ -298,10 +304,12 @@ func sendWithRetries(urlStr string, action func() (*HttpResponse, error)) (*Http
 		// Other errors (e.g. network IO errors) are retriable
 		if attempt < maxRetries {
 			delay := getExponentialBackoffWithJitter(attempt)
+			loggerutils.Warn("[HTTP-CLIENT] Network IO error: {}. Waiting for {}ms.", err.Error(), delay.Milliseconds())
 			time.Sleep(delay)
 		}
 	}
 
+	loggerutils.Error("[HTTP-CLIENT] Request to {} failed after {} attempts.", urlStr, maxRetries)
 	return nil, lastErr
 }
 
