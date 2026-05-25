@@ -29,6 +29,20 @@ func (r *HttpResponse) IsSuccessful() bool {
 	return r.StatusCode >= 200 && r.StatusCode < 300
 }
 
+// Map parses the JSON response body into a map[string]any.
+func (r *HttpResponse) Map() (map[string]any, error) {
+	if r.Body == "" {
+		return nil, fmt.Errorf("response body is empty")
+	}
+	var m map[string]any
+	err := json.Unmarshal([]byte(r.Body), &m)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response body to map: %w", err)
+	}
+	return m, nil
+}
+
+
 var IPHeaders = []string{
 	"X-Real-Ip",
 	"X-Forwarded-For",
@@ -407,4 +421,22 @@ func SendMultipartRequestWithoutSSLWithRetries(urlStr string, headers map[string
 	return sendWithRetries(urlStr, func() (*HttpResponse, error) {
 		return SendMultipartRequestWithoutSSL(urlStr, headers, formFields, fileFieldName, file)
 	})
+}
+
+// SendRequestForMap sends standard HTTP request and returns parsed JSON response as a map.
+func SendRequestForMap(urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (map[string]any, error) {
+	resp, err := SendRequest(urlStr, method, headers, body, contentType)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Map()
+}
+
+// SendRequestWithRetriesForMap sends standard HTTP request with retries and returns parsed JSON response as a map.
+func SendRequestWithRetriesForMap(urlStr string, method enums.HttpMethod, headers map[string]string, body any) (map[string]any, error) {
+	resp, err := SendRequestWithRetries(urlStr, method, headers, body)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Map()
 }
