@@ -69,7 +69,7 @@ func main() {
 	// Set headers
 	req.Header.Set(securityutils.HeaderSchemaName, "public_schema")
 	req.Header.Set(securityutils.HeaderUserId, "user-kaan")
-	req.Header.Set(securityutils.HeaderTenantId, "tenant-odine")
+	req.Header.Set(securityutils.HeaderTenantId, "my-tenant")
 	req.Header.Set(securityutils.HeaderRoles, "admin,operator")
 	
 	// Sign for 5 minutes into the future
@@ -79,7 +79,7 @@ func main() {
 
 	// Generate expected signature
 	// canonical format: schemaName:userId:tenantId:subjectType:sessionId:jti:tokenRefId:roles:exp
-	canonical := fmt.Sprintf("public_schema:user-kaan:tenant-odine:::::admin,operator:%s", expStr)
+	canonical := fmt.Sprintf("public_schema:user-kaan:my-tenant:::::admin,operator:%s", expStr)
 	
 	// We dynamically calculate signature using secret (normally set by API Gateway)
 	// In application code, set GATEWAY_SIGN_SECRET environment variable

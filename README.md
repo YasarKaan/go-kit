@@ -114,6 +114,98 @@ if err == nil {
 
 ---
 
+### `stringutils`
+Type-safe parameter map extraction and JSON serialization/conversion helpers.
+
+- **Parameter Extraction (`variable.go`)**:
+Extract values from generic maps (query, body, or path params) safely. It supports returning default values, pointers, or custom web exceptions (HTTP 422) automatically when fields are missing or invalid:
+
+```go
+import "github.com/YasarKaan/go-kit/stringutils"
+
+// Merge parameters from different sources
+params := stringutils.GetParameterMap(queryParams, bodyParams, pathParams)
+
+// Safe extraction with fallback defaults
+user := stringutils.GetStringValueFromMapWithDefault(params, "username", "guest")
+limit := stringutils.GetLongValueFromMapWithDefault(params, "limit", 10)
+
+// Extraction with automatic HTTP 422 error wrapping if value is invalid/missing
+uuidVal, err := stringutils.GetUUIDValueFromMapWithException(params, "userId", "userId is required and must be a valid UUID")
+```
+
+- **JSON Helper & Jackson-like Conversion (`json.go`)**:
+```go
+// Type-safe JSON parsing into generics
+userObj, err := stringutils.JsonStringToObject[User](`{"name":"kaan"}`)
+
+// Deep copy / Type convert (similar to Jackson's ObjectMapper.convertValue in Java)
+var target User
+target, err = stringutils.ConvertValue[User](map[string]any{"name": "kaan"})
+```
+
+---
+
+### `validationutils`
+Validation and parsing helpers for strings, formats, and IP addresses.
+
+- **String Format Validation (`string.go`)**:
+Verify formatting for common schemas, including strict URL parsing, password strength, and credit card validation (Luhn algorithm):
+```go
+import "github.com/YasarKaan/go-kit/validationutils"
+
+// General string validations
+isValid := validationutils.IsValidEmail("kaan@example.com")
+isStrong := validationutils.IsStrongPw("SecurePass123!") // Length >= 8, mixed cases, digit, special char
+isValidCard := validationutils.IsValidCreditCard("49927398716") // Luhn algorithm check
+
+// URL and files
+isStrictURL := validationutils.IsValidUrlStrict("https://example.com")
+isSafeFile := validationutils.IsValidFileName("invoice_2026.pdf")
+```
+
+- **IP Parsing & Utilities (`ip.go`)**:
+```go
+// Check IP versions or private subnets
+isIPv4 := validationutils.IsValidIPv4("192.168.1.1")
+isPrivate := validationutils.IsPrivateIP("10.0.0.5") // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 ranges
+isSameNet := validationutils.IsSameSubnet("192.168.1.10", "192.168.1.20", "255.255.255.0")
+
+// Integer/Long conversion (for DB indexes or ranges)
+ipLong, _ := validationutils.IpToLong("192.168.1.1") // 3232235777
+ipStr := validationutils.LongToIp(ipLong) // "192.168.1.1"
+```
+
+---
+
+### `dateutils`
+Java-compatible date format parsing, calculations, and business day counters.
+
+- **Java-to-Go Layout Translation**:
+Translates standard Java layout formats (`yyyy-MM-dd HH:mm:ss`) to native Go layouts under the hood.
+```go
+import "github.com/YasarKaan/go-kit/dateutils"
+
+// Parse custom formats using Java layouts
+isValid := dateutils.IsValid("2026-05-26 12:00:00", "yyyy-MM-dd HH:mm:ss")
+
+// Add days or compute relative time
+newDate := dateutils.AddDays("2026-05-26", "yyyy-MM-dd", 5) // "2026-05-31"
+daysDiff := dateutils.GetDaysBetween("2026-05-01", "2026-05-10", "yyyy-MM-dd", true) // 10 days
+age := dateutils.CalculateAge("1995-10-15", "yyyy-MM-dd")
+```
+
+- **Business Day Utilities**:
+```go
+// Checks if a date falls on a weekday
+isWorkday := dateutils.IsBusinessDay("2026-05-24", "yyyy-MM-dd") // false (Sunday)
+
+// Count weekdays between range
+workdays := dateutils.CountBusinessDays("2026-05-25", "2026-05-29", "yyyy-MM-dd", true) // 5 (Mon-Fri)
+```
+
+---
+
 ### `fileutils`
 Avoids loading large file buffers into memory by using streaming transfers.
 
