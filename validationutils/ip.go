@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 )
+
 // IsValidIPv4 checks if the string is a valid IPv4 address.
 func IsValidIPv4(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
@@ -20,40 +21,31 @@ func IsValidIPv6(ipStr string) bool {
 func IsValidIP(ipStr string) bool {
 	return net.ParseIP(ipStr) != nil
 }
-var privateRanges = []*net.IPNet{
-	mustParseCIDR("10.0.0.0/8"),
-	mustParseCIDR("172.16.0.0/12"),
-	mustParseCIDR("192.168.0.0/16"),
-}
 
-func mustParseCIDR(s string) *net.IPNet {
-	_, ipNet, err := net.ParseCIDR(s)
-	if err != nil {
-		panic(err)
-	}
-	return ipNet
-}
-
-// IsPrivateIP checks if the IP is in private ranges:
-// - 10.0.0.0/8
-// - 172.16.0.0/12
-// - 192.168.0.0/16
+// IsPrivateIP checks if the IP is in private ranges (including IPv4 RFC 1918 and IPv6 RFC 4193 ULA).
 func IsPrivateIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
-	for _, r := range privateRanges {
-		if r.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return ip.IsPrivate()
 }
 
 // IsLocalhost checks if the IP is localhost (127.0.0.1 or ::1).
 func IsLocalhost(ipStr string) bool {
-	return ipStr == "127.0.0.1" || ipStr == "::1"
+	return ipStr == "127.0.0.1" || ipStr == "::1" || IsLoopbackIP(ipStr)
+}
+
+// IsLoopbackIP checks if the IP is a loopback address.
+func IsLoopbackIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	return ip != nil && ip.IsLoopback()
+}
+
+// IsLinkLocalIP checks if the IP is a link-local address.
+func IsLinkLocalIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	return ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast())
 }
 
 // IsSameSubnet checks if two IPv4 addresses are in the same subnet given a subnet mask.

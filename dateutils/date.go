@@ -1,86 +1,69 @@
 package dateutils
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
 
-// convertJavaLayout translates standard Java date/time format strings (like yyyy-MM-dd)
-// into Go time package layouts (like 2006-01-02).
-func convertJavaLayout(javaLayout string) string {
-	r := strings.NewReplacer(
-		"yyyy", "2006",
-		"yy", "06",
-		"MM", "01",
-		"dd", "02",
-		"HH", "15",
-		"mm", "04",
-		"ss", "05",
-	)
-	return r.Replace(javaLayout)
-}
-
 // IsValid checks if the date string conforms to the specified layout.
-func IsValid(dateAsString, dateFormat string) bool {
-	layout := convertJavaLayout(dateFormat)
+func IsValid(dateAsString, layout string) bool {
 	_, err := time.Parse(layout, dateAsString)
 	return err == nil
 }
 
 // DateRelativeToToday checks if the date is in the past (-1), today (0), or in the future (1).
-func DateRelativeToToday(date, dateFormat string) int {
-	layout := convertJavaLayout(dateFormat)
+func DateRelativeToToday(date, layout string) (int, error) {
 	inputTime, err := time.Parse(layout, date)
 	if err != nil {
-		return -2
+		return 0, err
 	}
 
 	now := time.Now()
-	// Strip time component to compare date-only (like LocalDate)
+	// Strip time component to compare date-only
 	inputDate := time.Date(inputTime.Year(), inputTime.Month(), inputTime.Day(), 0, 0, 0, 0, time.Local)
 	todayDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 
 	if inputDate.Before(todayDate) {
-		return -1
+		return -1, nil
 	} else if inputDate.Equal(todayDate) {
-		return 0
-	} else if inputDate.After(todayDate) {
-		return 1
+		return 0, nil
 	}
-	return -2
+	return 1, nil
 }
 
 // GetDaysBetween returns the number of days between two dates.
-func GetDaysBetween(startDate, endDate, dateFormat string, includeEndDate bool) int {
-	layout := convertJavaLayout(dateFormat)
-	start, err1 := time.Parse(layout, startDate)
-	end, err2 := time.Parse(layout, endDate)
-	if err1 != nil || err2 != nil {
-		return 0
+func GetDaysBetween(startDate, endDate, layout string, includeEndDate bool) (int, error) {
+	start, err := time.Parse(layout, startDate)
+	if err != nil {
+		return 0, err
+	}
+	end, err := time.Parse(layout, endDate)
+	if err != nil {
+		return 0, err
 	}
 
 	if start.After(end) {
-		return 0
+		return 0, nil
 	}
 
 	duration := end.Sub(start)
 	days := int(duration.Hours() / 24)
 
 	if includeEndDate {
-		return days + 1
+		return days + 1, nil
 	}
-	return days
+	return days, nil
 }
 
 // AddDays adds a number of days to a date string.
-func AddDays(date, dateFormat string, daysToAdd int64) string {
-	layout := convertJavaLayout(dateFormat)
+func AddDays(date, layout string, daysToAdd int) (string, error) {
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	t = t.AddDate(0, 0, int(daysToAdd))
-	return t.Format(layout)
+	t = t.AddDate(0, 0, daysToAdd)
+	return t.Format(layout), nil
 }
 
 var daysTR = map[string]string{
@@ -94,48 +77,45 @@ var daysTR = map[string]string{
 }
 
 // GetDayOfWeek returns the name of the day of the week, with simple locale translation (supports "tr").
-func GetDayOfWeek(date, dateFormat string, locale string) string {
-	layout := convertJavaLayout(dateFormat)
+func GetDayOfWeek(date, layout string, locale string) (string, error) {
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
 	englishDay := t.Weekday().String()
 	if strings.HasPrefix(strings.ToLower(locale), "tr") {
 		if trDay, ok := daysTR[englishDay]; ok {
-			return trDay
+			return trDay, nil
 		}
 	}
-	return englishDay
+	return englishDay, nil
 }
 
 // GetLastDayOfMonth returns the date string corresponding to the last day of that month.
-func GetLastDayOfMonth(date, dateFormat string) string {
-	layout := convertJavaLayout(dateFormat)
+func GetLastDayOfMonth(date, layout string) (string, error) {
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
 	// Go to first day of next month, then subtract one day
 	firstOfNextMonth := time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location())
 	lastDay := firstOfNextMonth.AddDate(0, 0, -1)
 
-	return lastDay.Format(layout)
+	return lastDay.Format(layout), nil
 }
 
 // CalculateAge calculates age in years based on birthdate.
-func CalculateAge(birthDate, dateFormat string) int {
-	layout := convertJavaLayout(dateFormat)
+func CalculateAge(birthDate, layout string) (int, error) {
 	birth, err := time.Parse(layout, birthDate)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 
 	now := time.Now()
 	if birth.After(now) {
-		return 0
+		return 0, fmt.Errorf("birth date %s is in the future", birthDate)
 	}
 
 	years := now.Year() - birth.Year()
@@ -146,27 +126,25 @@ func CalculateAge(birthDate, dateFormat string) int {
 	if nowMonthDay < birthMonthDay {
 		years--
 	}
-	return years
+	return years, nil
 }
 
 // GetQuarter returns the quarter of the year (1, 2, 3, or 4).
-func GetQuarter(date, dateFormat string) int {
-	layout := convertJavaLayout(dateFormat)
+func GetQuarter(date, layout string) (int, error) {
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return int((t.Month()-1)/3) + 1
+	return int((t.Month()-1)/3) + 1, nil
 }
 
 // IsBusinessDay checks if the date is a weekday (Monday to Friday).
-func IsBusinessDay(date, dateFormat string) bool {
-	layout := convertJavaLayout(dateFormat)
+func IsBusinessDay(date, layout string) (bool, error) {
 	t, err := time.Parse(layout, date)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return isBusinessDayTime(t)
+	return isBusinessDayTime(t), nil
 }
 
 func isBusinessDayTime(t time.Time) bool {
@@ -175,16 +153,18 @@ func isBusinessDayTime(t time.Time) bool {
 }
 
 // CountBusinessDays counts weekdays between two dates.
-func CountBusinessDays(startDate, endDate, dateFormat string, includeEndDate bool) int {
-	layout := convertJavaLayout(dateFormat)
-	start, err1 := time.Parse(layout, startDate)
-	end, err2 := time.Parse(layout, endDate)
-	if err1 != nil || err2 != nil {
-		return 0
+func CountBusinessDays(startDate, endDate, layout string, includeEndDate bool) (int, error) {
+	start, err := time.Parse(layout, startDate)
+	if err != nil {
+		return 0, err
+	}
+	end, err := time.Parse(layout, endDate)
+	if err != nil {
+		return 0, err
 	}
 
 	if start.After(end) {
-		return 0
+		return 0, nil
 	}
 
 	count := 0
@@ -208,5 +188,5 @@ func CountBusinessDays(startDate, endDate, dateFormat string, includeEndDate boo
 		current = current.AddDate(0, 0, 1)
 	}
 
-	return count
+	return count, nil
 }

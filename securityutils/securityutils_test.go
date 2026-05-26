@@ -45,7 +45,7 @@ func TestHashingAndHMAC(t *testing.T) {
 		t.Error("expected 128 character hex string for sha512")
 	}
 
-	md5Hex := HashMD5(input)
+	md5Hex := HashMD5Insecure(input)
 	if len(md5Hex) != 32 {
 		t.Error("expected 32 character hex string for md5")
 	}

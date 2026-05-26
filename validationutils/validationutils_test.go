@@ -96,6 +96,14 @@ func TestIPValidation(t *testing.T) {
 		t.Error("expected localhost")
 	}
 
+	if !IsLoopbackIP("127.0.0.1") || !IsLoopbackIP("::1") {
+		t.Error("expected loopback IP")
+	}
+
+	if !IsLinkLocalIP("169.254.1.1") || !IsLinkLocalIP("fe80::1") {
+		t.Error("expected link-local IP")
+	}
+
 	if !IsSameSubnet("192.168.1.10", "192.168.1.20", "255.255.255.0") {
 		t.Error("expected same subnet")
 	}

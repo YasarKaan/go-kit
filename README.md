@@ -27,7 +27,7 @@
 | [`securityutils`](#securityutils) | Bcrypt hashing, AES-256-GCM encryption, and Gateway validation |
 | [`stringutils`](#stringutils) | Type-safe parameter map extraction and JSON generics |
 | [`validationutils`](#validationutils) | Email, phone, IP subnet (`net.IPNet`), and filename checking |
-| [`dateutils`](#dateutils) | Weekdays/business days math with Java formatting layout translation |
+| [`dateutils`](#dateutils) | Weekdays/business days arithmetic and strict ISO8601 formatting |
 | [`fileutils`](#fileutils) | Memory-safe streaming files processing and OOM protection |
 | [`exceptions`](#exceptions) | Custom structured HTTP error models |
 | [`enums`](#enums) | Common HTTP method, log level, and priority constants |
@@ -63,6 +63,10 @@ ctx := loggerutils.WithFields(context.Background(), map[string]any{
 })
 loggerutils.InfoContext(ctx, "Processing payments")
 // Output: {"time":"...","level":"INFO","message":"Processing payments","requestId":"req-12345","userId":"user-kaan"}
+
+// Instance-based logging is also fully supported for project encapsulation:
+logger := loggerutils.NewLogger(os.Stdout, enums.LevelDebug)
+logger.Info("This is an isolated instance")
 ```
 
 ---
@@ -95,7 +99,7 @@ hashed, err := securityutils.HashPw("userPassword123!")
 isValid := securityutils.VerifyPw(hashed, "userPassword123!") // true
 ```
 
-- **AES-256-GCM Encryption** (16-byte nonce Base64 combined - Java compatible):
+- **AES-256-GCM Encryption** (Standard 12-byte nonce Base64 combined):
 ```go
 key, _ := securityutils.GenerateAESKey()
 encrypted, _ := securityutils.Encrypt("sensitive info", key)
@@ -168,7 +172,9 @@ isSafeFile := validationutils.IsValidFileName("invoice_2026.pdf")
 ```go
 // Check IP versions or private subnets
 isIPv4 := validationutils.IsValidIPv4("192.168.1.1")
-isPrivate := validationutils.IsPrivateIP("10.0.0.5") // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 ranges
+isPrivate := validationutils.IsPrivateIP("10.0.0.5") // Supports RFC 1918 and RFC 4193 (IPv6 ULA)
+isLoopback := validationutils.IsLoopbackIP("127.0.0.1") // true
+isLinkLocal := validationutils.IsLinkLocalIP("169.254.0.1") // true
 isSameNet := validationutils.IsSameSubnet("192.168.1.10", "192.168.1.20", "255.255.255.0")
 
 // Integer/Long conversion (for DB indexes or ranges)
@@ -179,29 +185,29 @@ ipStr := validationutils.LongToIp(ipLong) // "192.168.1.1"
 ---
 
 ### `dateutils`
-Java-compatible date format parsing, calculations, and business day counters.
+Date format parsing, calculations, and business day counters using native Go/ISO8601 layout standards with strict error propagation.
 
-- **Java-to-Go Layout Translation**:
-Translates standard Java layout formats (`yyyy-MM-dd HH:mm:ss`) to native Go layouts under the hood.
+- **Date Formatting & Range Math**:
+Parse and process using native Go time formats (e.g. `"2006-01-02"`):
 ```go
 import "github.com/YasarKaan/go-kit/dateutils"
 
-// Parse custom formats using Java layouts
-isValid := dateutils.IsValid("2026-05-26 12:00:00", "yyyy-MM-dd HH:mm:ss")
+// Parse custom formats using native Go layouts
+isValid := dateutils.IsValid("2026-05-26 12:00:00", "2006-01-02 15:04:05")
 
-// Add days or compute relative time
-newDate := dateutils.AddDays("2026-05-26", "yyyy-MM-dd", 5) // "2026-05-31"
-daysDiff := dateutils.GetDaysBetween("2026-05-01", "2026-05-10", "yyyy-MM-dd", true) // 10 days
-age := dateutils.CalculateAge("1995-10-15", "yyyy-MM-dd")
+// Add days or compute relative time (all return errors on parsing failure)
+newDate, err := dateutils.AddDays("2026-05-26", "2006-01-02", 5) // "2026-05-31", nil
+daysDiff, err := dateutils.GetDaysBetween("2026-05-01", "2026-05-10", "2006-01-02", true) // 10, nil
+age, err := dateutils.CalculateAge("1995-10-15", "2006-01-02")
 ```
 
 - **Business Day Utilities**:
 ```go
 // Checks if a date falls on a weekday
-isWorkday := dateutils.IsBusinessDay("2026-05-24", "yyyy-MM-dd") // false (Sunday)
+isWorkday, err := dateutils.IsBusinessDay("2026-05-24", "2006-01-02") // false, nil (Sunday)
 
 // Count weekdays between range
-workdays := dateutils.CountBusinessDays("2026-05-25", "2026-05-29", "yyyy-MM-dd", true) // 5 (Mon-Fri)
+workdays, err := dateutils.CountBusinessDays("2026-05-25", "2026-05-29", "2006-01-02", true) // 5, nil (Mon-Fri)
 ```
 
 ---

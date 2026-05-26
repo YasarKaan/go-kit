@@ -415,43 +415,55 @@ func DangerousSendRequestWithoutSSLWithRetries(ctx context.Context, urlStr strin
 	})
 }
 
-// executeMultipartRequest performs multipart form upload.
+// executeMultipartRequest performs multipart form upload using io.Pipe for true OOM-safe streaming.
 func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	// Add text fields
-	if formFields != nil {
-		for k, v := range formFields {
-			_ = writer.WriteField(k, v)
-		}
-	}
+	go func() {
+		var err error
+		defer func() {
+			if err != nil {
+				_ = pw.CloseWithError(err)
+			} else {
+				_ = pw.Close()
+			}
+		}()
 
-	// Add file field
-	if file != nil && fileFieldName != "" && !file.IsEmpty() {
-		part, err := writer.CreateFormFile(fileFieldName, file.GetOriginalFilename())
-		if err != nil {
-			return nil, err
+		// Add text fields
+		if formFields != nil {
+			for k, v := range formFields {
+				if err = writer.WriteField(k, v); err != nil {
+					return
+				}
+			}
 		}
-		
-		// OOM-Safe Stream copying
-		fileReader := file.GetReader()
-		if closer, ok := fileReader.(io.Closer); ok {
-			defer closer.Close()
-		}
-		_, err = io.Copy(part, fileReader)
-		if err != nil {
-			return nil, err
-		}
-	}
 
-	err := writer.Close()
+		// Add file field
+		if file != nil && fileFieldName != "" && !file.IsEmpty() {
+			var part io.Writer
+			part, err = writer.CreateFormFile(fileFieldName, file.GetOriginalFilename())
+			if err != nil {
+				return
+			}
+			
+			// OOM-Safe Stream copying
+			fileReader := file.GetReader()
+			if closer, ok := fileReader.(io.Closer); ok {
+				defer closer.Close()
+			}
+			_, err = io.Copy(part, fileReader)
+			if err != nil {
+				return
+			}
+		}
+
+		err = writer.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", urlStr, pr)
 	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", urlStr, body)
-	if err != nil {
+		_ = pr.Close()
 		return nil, err
 	}
 

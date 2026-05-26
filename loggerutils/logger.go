@@ -40,10 +40,6 @@ var (
 	sensitiveKvPattern   = regexp.MustCompile(`(?i)(password|token|secret|credential|apikey|api_key|authorization|private_key|otp|pin|cvv)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)`)
 	crlfPattern          = regexp.MustCompile(`[\r\n]+`)
 
-	// Log Level configuration
-	currentLogLevel enums.LogLevel = enums.LevelInfo
-	logLevelMutex   sync.RWMutex
-
 	levelPriority = map[enums.LogLevel]int{
 		enums.LevelDebug: 0,
 		enums.LevelInfo:  1,
@@ -53,26 +49,36 @@ var (
 	}
 )
 
-func init() {
-	// Set default logging flags to 0 to print raw JSON lines cleanly.
-	log.SetFlags(0)
+// Logger struct represents an instance-based logging configuration.
+type Logger struct {
+	level     enums.LogLevel
+	mu        sync.RWMutex
+	stdLogger *log.Logger
 }
 
-// SetLogLevel updates the minimum log level for filtering.
-func SetLogLevel(level enums.LogLevel) {
-	logLevelMutex.Lock()
-	defer logLevelMutex.Unlock()
-	currentLogLevel = level
+// NewLogger creates a new Logger instance.
+func NewLogger(writer io.Writer, level enums.LogLevel) *Logger {
+	return &Logger{
+		level:     level,
+		stdLogger: log.New(writer, "", 0),
+	}
 }
 
-func getLogLevel() enums.LogLevel {
-	logLevelMutex.RLock()
-	defer logLevelMutex.RUnlock()
-	return currentLogLevel
+// SetLogLevel updates the minimum log level for filtering on this instance.
+func (l *Logger) SetLogLevel(level enums.LogLevel) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.level = level
 }
 
-func shouldLog(level enums.LogLevel) bool {
-	configLevel := getLogLevel()
+func (l *Logger) getLogLevel() enums.LogLevel {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.level
+}
+
+func (l *Logger) shouldLog(level enums.LogLevel) bool {
+	configLevel := l.getLogLevel()
 	prio, ok1 := levelPriority[level]
 	prioConfig, ok2 := levelPriority[configLevel]
 	if !ok1 || !ok2 {
@@ -134,8 +140,8 @@ func (e logEntry) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func writeLog(ctx context.Context, level enums.LogLevel, msg string) {
-	if !shouldLog(level) {
+func (l *Logger) writeLog(ctx context.Context, level enums.LogLevel, msg string) {
+	if !l.shouldLog(level) {
 		return
 	}
 
@@ -153,16 +159,100 @@ func writeLog(ctx context.Context, level enums.LogLevel, msg string) {
 	}
 
 	b, err := json.Marshal(entry)
-	if err == nil {
-		log.Println(string(b))
+	if l.stdLogger != nil {
+		if err == nil {
+			l.stdLogger.Println(string(b))
+		} else {
+			l.stdLogger.Printf(`{"time":"%s","level":"%s","message":"%s"}`+"\n",
+				time.Now().Format(time.RFC3339),
+				level,
+				strings.ReplaceAll(strings.ReplaceAll(msg, `\`, `\\`), `"`, `\"`),
+			)
+		}
 	} else {
-		// Fallback safe string output in case JSON marshal fails.
-		log.Printf(`{"time":"%s","level":"%s","message":"%s"}`+"\n",
-			time.Now().Format(time.RFC3339),
-			level,
-			strings.ReplaceAll(strings.ReplaceAll(msg, `\`, `\\`), `"`, `\"`),
-		)
+		if err == nil {
+			log.Println(string(b))
+		} else {
+			log.Printf(`{"time":"%s","level":"%s","message":"%s"}`+"\n",
+				time.Now().Format(time.RFC3339),
+				level,
+				strings.ReplaceAll(strings.ReplaceAll(msg, `\`, `\\`), `"`, `\"`),
+			)
+		}
 	}
+}
+
+// Debug logs a debug level message.
+func (l *Logger) Debug(message string, args ...any) {
+	l.writeLog(nil, enums.LevelDebug, formatMessage(message, args))
+}
+
+// Info logs an info level message.
+func (l *Logger) Info(message string, args ...any) {
+	l.writeLog(nil, enums.LevelInfo, formatMessage(message, args))
+}
+
+// Warn logs a warning level message.
+func (l *Logger) Warn(message string, args ...any) {
+	l.writeLog(nil, enums.LevelWarn, formatMessage(message, args))
+}
+
+// Error logs an error level message.
+func (l *Logger) Error(message string, args ...any) {
+	l.writeLog(nil, enums.LevelError, formatMessage(message, args))
+}
+
+// ErrorWithThrowable logs an error with a details error struct.
+func (l *Logger) ErrorWithThrowable(message string, err error) {
+	msg := Sanitize(message)
+	if err != nil {
+		l.writeLog(nil, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
+	} else {
+		l.writeLog(nil, enums.LevelError, msg)
+	}
+}
+
+// PushLog is a backward-compatible method matching the Java signature.
+func (l *Logger) PushLog(level enums.LogLevel, message string, args ...any) {
+	l.writeLog(nil, level, formatMessage(message, args))
+}
+
+// DebugContext logs a debug message with correlation context.
+func (l *Logger) DebugContext(ctx context.Context, message string, args ...any) {
+	l.writeLog(ctx, enums.LevelDebug, formatMessage(message, args))
+}
+
+// InfoContext logs an info message with correlation context.
+func (l *Logger) InfoContext(ctx context.Context, message string, args ...any) {
+	l.writeLog(ctx, enums.LevelInfo, formatMessage(message, args))
+}
+
+// WarnContext logs a warning message with correlation context.
+func (l *Logger) WarnContext(ctx context.Context, message string, args ...any) {
+	l.writeLog(ctx, enums.LevelWarn, formatMessage(message, args))
+}
+
+// ErrorContext logs an error message with correlation context.
+func (l *Logger) ErrorContext(ctx context.Context, message string, args ...any) {
+	l.writeLog(ctx, enums.LevelError, formatMessage(message, args))
+}
+
+// ErrorWithThrowableContext logs an error with correlation context and error details.
+func (l *Logger) ErrorWithThrowableContext(ctx context.Context, message string, err error) {
+	msg := Sanitize(message)
+	if err != nil {
+		l.writeLog(ctx, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
+	} else {
+		l.writeLog(ctx, enums.LevelError, msg)
+	}
+}
+
+// -------------------------------------------------------------
+// Global Default Logger Instance & Wrapper Functions
+// -------------------------------------------------------------
+
+var defaultLogger = &Logger{
+	level: enums.LevelInfo,
 }
 
 // InitLogger configures the global logger to write to a daily-archived rolling file.
@@ -185,6 +275,70 @@ func InitLogger(filePath string, maxSizeMB int, maxBackups int, maxAgeDays int, 
 	log.SetFlags(0) // Ensure no log prefixes (structured JSON)
 }
 
+// SetLogLevel updates the minimum log level for filtering on the global logger.
+func SetLogLevel(level enums.LogLevel) {
+	defaultLogger.SetLogLevel(level)
+}
+
+// Debug logs a debug level message on the global logger.
+func Debug(message string, args ...any) {
+	defaultLogger.Debug(message, args...)
+}
+
+// Info logs an info level message on the global logger.
+func Info(message string, args ...any) {
+	defaultLogger.Info(message, args...)
+}
+
+// Warn logs a warning level message on the global logger.
+func Warn(message string, args ...any) {
+	defaultLogger.Warn(message, args...)
+}
+
+// Error logs an error level message on the global logger.
+func Error(message string, args ...any) {
+	defaultLogger.Error(message, args...)
+}
+
+// ErrorWithThrowable logs an error with a details error struct on the global logger.
+func ErrorWithThrowable(message string, err error) {
+	defaultLogger.ErrorWithThrowable(message, err)
+}
+
+// PushLog is a backward-compatible method matching the Java signature.
+func PushLog(level enums.LogLevel, message string, args ...any) {
+	defaultLogger.PushLog(level, message, args...)
+}
+
+// DebugContext logs a debug message with correlation context on the global logger.
+func DebugContext(ctx context.Context, message string, args ...any) {
+	defaultLogger.DebugContext(ctx, message, args...)
+}
+
+// InfoContext logs an info message with correlation context on the global logger.
+func InfoContext(ctx context.Context, message string, args ...any) {
+	defaultLogger.InfoContext(ctx, message, args...)
+}
+
+// WarnContext logs a warning message with correlation context on the global logger.
+func WarnContext(ctx context.Context, message string, args ...any) {
+	defaultLogger.WarnContext(ctx, message, args...)
+}
+
+// ErrorContext logs an error message with correlation context on the global logger.
+func ErrorContext(ctx context.Context, message string, args ...any) {
+	defaultLogger.ErrorContext(ctx, message, args...)
+}
+
+// ErrorWithThrowableContext logs an error with correlation context and error details on the global logger.
+func ErrorWithThrowableContext(ctx context.Context, message string, err error) {
+	defaultLogger.ErrorWithThrowableContext(ctx, message, err)
+}
+
+// -------------------------------------------------------------
+// Shared Helper Functions
+// -------------------------------------------------------------
+
 // Sanitize checks for sensitive parameters in strings and masks them, and removes CRLF to prevent log injection.
 func Sanitize(message string) string {
 	if message == "" {
@@ -200,7 +354,7 @@ func Sanitize(message string) string {
 	// 3. Mask Key=Value sensitive fields: password=value -> password=***
 	result = sensitiveKvPattern.ReplaceAllString(result, `$1=***`)
 
-	// Force drop taint to break tracking in static analyzers (Java conversion logic compatibility)
+	// Force drop taint to break tracking in static analyzers
 	return dropTaint(result)
 }
 
@@ -275,71 +429,4 @@ func formatMessage(msg string, args []any) string {
 
 	// Otherwise, just append the args
 	return fmt.Sprintf(sanitizedMsg+" %v", sanitizedArgs)
-}
-
-// Debug logs a debug level message.
-func Debug(message string, args ...any) {
-	writeLog(nil, enums.LevelDebug, formatMessage(message, args))
-}
-
-// Info logs an info level message.
-func Info(message string, args ...any) {
-	writeLog(nil, enums.LevelInfo, formatMessage(message, args))
-}
-
-// Warn logs a warning level message.
-func Warn(message string, args ...any) {
-	writeLog(nil, enums.LevelWarn, formatMessage(message, args))
-}
-
-// Error logs an error level message.
-func Error(message string, args ...any) {
-	writeLog(nil, enums.LevelError, formatMessage(message, args))
-}
-
-// ErrorWithThrowable logs an error with a details error struct.
-func ErrorWithThrowable(message string, err error) {
-	msg := Sanitize(message)
-	if err != nil {
-		writeLog(nil, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
-	} else {
-		writeLog(nil, enums.LevelError, msg)
-	}
-}
-
-// PushLog is a backward-compatible method matching the Java signature.
-func PushLog(level enums.LogLevel, message string, args ...any) {
-	writeLog(nil, level, formatMessage(message, args))
-}
-
-// Context-Aware Logging Helpers
-
-// DebugContext logs a debug message with correlation context.
-func DebugContext(ctx context.Context, message string, args ...any) {
-	writeLog(ctx, enums.LevelDebug, formatMessage(message, args))
-}
-
-// InfoContext logs an info message with correlation context.
-func InfoContext(ctx context.Context, message string, args ...any) {
-	writeLog(ctx, enums.LevelInfo, formatMessage(message, args))
-}
-
-// WarnContext logs a warning message with correlation context.
-func WarnContext(ctx context.Context, message string, args ...any) {
-	writeLog(ctx, enums.LevelWarn, formatMessage(message, args))
-}
-
-// ErrorContext logs an error message with correlation context.
-func ErrorContext(ctx context.Context, message string, args ...any) {
-	writeLog(ctx, enums.LevelError, formatMessage(message, args))
-}
-
-// ErrorWithThrowableContext logs an error with correlation context and error details.
-func ErrorWithThrowableContext(ctx context.Context, message string, err error) {
-	msg := Sanitize(message)
-	if err != nil {
-		writeLog(ctx, enums.LevelError, fmt.Sprintf("%s: %v", msg, err))
-	} else {
-		writeLog(ctx, enums.LevelError, msg)
-	}
 }

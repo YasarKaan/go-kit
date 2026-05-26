@@ -146,3 +146,25 @@ func TestStructuredLoggingFields(t *testing.T) {
 		t.Errorf("expected level 'INFO', got: %v", data["level"])
 	}
 }
+
+func TestInstanceLogger(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, enums.LevelDebug)
+
+	logger.Info("Instance logger test message")
+
+	output := buf.String()
+	var data map[string]any
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &data)
+	if err != nil {
+		t.Fatalf("logged output is not valid JSON: %v", err)
+	}
+
+	if data["message"] != "Instance logger test message" {
+		t.Errorf("expected message 'Instance logger test message', got: %v", data["message"])
+	}
+
+	if data["level"] != "INFO" {
+		t.Errorf("expected level 'INFO', got: %v", data["level"])
+	}
+}

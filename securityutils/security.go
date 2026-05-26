@@ -28,9 +28,9 @@ func GenerateAESKey() ([]byte, error) {
 	return key, nil
 }
 
-// GenerateIv generates a 16-byte initialization vector.
+// GenerateIv generates a 12-byte initialization vector (nonce) standard for AES-GCM.
 func GenerateIv() ([]byte, error) {
-	iv := make([]byte, 16)
+	iv := make([]byte, 12)
 	_, err := rand.Read(iv)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func GenerateIv() ([]byte, error) {
 	return iv, nil
 }
 
-// Encrypt encrypts a string using AES/GCM/NoPadding (256-bit key, 16-byte IV, 128-bit tag).
+// Encrypt encrypts a string using AES/GCM/NoPadding (256-bit key, 12-byte standard nonce, 128-bit tag).
 func Encrypt(plainText string, key []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -50,7 +50,7 @@ func Encrypt(plainText string, key []byte) (string, error) {
 		return "", err
 	}
 
-	aesgcm, err := cipher.NewGCMWithNonceSize(block, 16)
+	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return "", err
 	}
@@ -58,8 +58,8 @@ func Encrypt(plainText string, key []byte) (string, error) {
 	ciphertext := aesgcm.Seal(nil, iv, []byte(plainText), nil)
 
 	combined := make([]byte, len(iv)+len(ciphertext))
-	copy(combined[0:16], iv)
-	copy(combined[16:], ciphertext)
+	copy(combined[0:12], iv)
+	copy(combined[12:], ciphertext)
 
 	return base64.StdEncoding.EncodeToString(combined), nil
 }
@@ -71,19 +71,19 @@ func Decrypt(encryptedText string, key []byte) (string, error) {
 		return "", err
 	}
 
-	if len(combined) < 16 {
+	if len(combined) < 12 {
 		return "", fmt.Errorf("ciphertext too short")
 	}
 
-	iv := combined[0:16]
-	ciphertext := combined[16:]
+	iv := combined[0:12]
+	ciphertext := combined[12:]
 
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
 
-	aesgcm, err := cipher.NewGCMWithNonceSize(block, 16)
+	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return "", err
 	}
@@ -118,8 +118,10 @@ func HashSHA512(input string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// HashMD5 returns MD5 hash in hex representation.
-func HashMD5(input string) string {
+// HashMD5Insecure returns MD5 hash in hex representation.
+// WARNING: MD5 is cryptographically broken and must not be used for secure hashing (such as passwords).
+// Use HashSHA256 or bcrypt instead. This function is only intended for insecure checksum validation.
+func HashMD5Insecure(input string) string {
 	h := md5.Sum([]byte(input))
 	return hex.EncodeToString(h[:])
 }
