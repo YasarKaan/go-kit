@@ -6,15 +6,40 @@ import (
 	"time"
 )
 
-// IsValid checks if the date string conforms to the specified layout.
-func IsValid(dateAsString, layout string) bool {
+var standardLayouts = []string{
+	"2006-01-02",
+	"2006-01-02 15:04:05",
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	"2006/01/02",
+	"02-01-2006",
+	"02/01/2006",
+}
+
+func parseDate(dateStr string) (time.Time, string, error) {
+	for _, layout := range standardLayouts {
+		if t, err := time.Parse(layout, dateStr); err == nil {
+			return t, layout, nil
+		}
+	}
+	return time.Time{}, "", fmt.Errorf("unable to parse date %q: does not match any supported standard layout", dateStr)
+}
+
+// IsValid checks if the date string conforms to any supported standard layout.
+func IsValid(dateAsString string) bool {
+	_, _, err := parseDate(dateAsString)
+	return err == nil
+}
+
+// IsValidWithLayout checks if the date string conforms to the specified layout.
+func IsValidWithLayout(dateAsString, layout string) bool {
 	_, err := time.Parse(layout, dateAsString)
 	return err == nil
 }
 
 // DateRelativeToToday checks if the date is in the past (-1), today (0), or in the future (1).
-func DateRelativeToToday(date, layout string) (int, error) {
-	inputTime, err := time.Parse(layout, date)
+func DateRelativeToToday(date string) (int, error) {
+	inputTime, _, err := parseDate(date)
 	if err != nil {
 		return 0, err
 	}
@@ -33,12 +58,12 @@ func DateRelativeToToday(date, layout string) (int, error) {
 }
 
 // GetDaysBetween returns the number of days between two dates.
-func GetDaysBetween(startDate, endDate, layout string, includeEndDate bool) (int, error) {
-	start, err := time.Parse(layout, startDate)
+func GetDaysBetween(startDate, endDate string, includeEndDate bool) (int, error) {
+	start, _, err := parseDate(startDate)
 	if err != nil {
 		return 0, err
 	}
-	end, err := time.Parse(layout, endDate)
+	end, _, err := parseDate(endDate)
 	if err != nil {
 		return 0, err
 	}
@@ -56,9 +81,9 @@ func GetDaysBetween(startDate, endDate, layout string, includeEndDate bool) (int
 	return days, nil
 }
 
-// AddDays adds a number of days to a date string.
-func AddDays(date, layout string, daysToAdd int) (string, error) {
-	t, err := time.Parse(layout, date)
+// AddDays adds a number of days to a date string, preserving its format.
+func AddDays(date string, daysToAdd int) (string, error) {
+	t, layout, err := parseDate(date)
 	if err != nil {
 		return "", err
 	}
@@ -77,8 +102,8 @@ var daysTR = map[string]string{
 }
 
 // GetDayOfWeek returns the name of the day of the week, with simple locale translation (supports "tr").
-func GetDayOfWeek(date, layout string, locale string) (string, error) {
-	t, err := time.Parse(layout, date)
+func GetDayOfWeek(date string, locale string) (string, error) {
+	t, _, err := parseDate(date)
 	if err != nil {
 		return "", err
 	}
@@ -92,9 +117,9 @@ func GetDayOfWeek(date, layout string, locale string) (string, error) {
 	return englishDay, nil
 }
 
-// GetLastDayOfMonth returns the date string corresponding to the last day of that month.
-func GetLastDayOfMonth(date, layout string) (string, error) {
-	t, err := time.Parse(layout, date)
+// GetLastDayOfMonth returns the date string corresponding to the last day of that month, preserving its format.
+func GetLastDayOfMonth(date string) (string, error) {
+	t, layout, err := parseDate(date)
 	if err != nil {
 		return "", err
 	}
@@ -107,8 +132,8 @@ func GetLastDayOfMonth(date, layout string) (string, error) {
 }
 
 // CalculateAge calculates age in years based on birthdate.
-func CalculateAge(birthDate, layout string) (int, error) {
-	birth, err := time.Parse(layout, birthDate)
+func CalculateAge(birthDate string) (int, error) {
+	birth, _, err := parseDate(birthDate)
 	if err != nil {
 		return 0, err
 	}
@@ -130,8 +155,8 @@ func CalculateAge(birthDate, layout string) (int, error) {
 }
 
 // GetQuarter returns the quarter of the year (1, 2, 3, or 4).
-func GetQuarter(date, layout string) (int, error) {
-	t, err := time.Parse(layout, date)
+func GetQuarter(date string) (int, error) {
+	t, _, err := parseDate(date)
 	if err != nil {
 		return 0, err
 	}
@@ -139,8 +164,8 @@ func GetQuarter(date, layout string) (int, error) {
 }
 
 // IsBusinessDay checks if the date is a weekday (Monday to Friday).
-func IsBusinessDay(date, layout string) (bool, error) {
-	t, err := time.Parse(layout, date)
+func IsBusinessDay(date string) (bool, error) {
+	t, _, err := parseDate(date)
 	if err != nil {
 		return false, err
 	}
@@ -153,12 +178,12 @@ func isBusinessDayTime(t time.Time) bool {
 }
 
 // CountBusinessDays counts weekdays between two dates.
-func CountBusinessDays(startDate, endDate, layout string, includeEndDate bool) (int, error) {
-	start, err := time.Parse(layout, startDate)
+func CountBusinessDays(startDate, endDate string, includeEndDate bool) (int, error) {
+	start, _, err := parseDate(startDate)
 	if err != nil {
 		return 0, err
 	}
-	end, err := time.Parse(layout, endDate)
+	end, _, err := parseDate(endDate)
 	if err != nil {
 		return 0, err
 	}

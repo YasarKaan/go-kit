@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/YasarKaan/go-kit/enums"
@@ -21,56 +20,6 @@ import (
 	"github.com/YasarKaan/go-kit/fileutils"
 	"github.com/YasarKaan/go-kit/loggerutils"
 )
-
-// Reusable singletons to share connection pool and avoid socket exhaustion under high load.
-var (
-	defaultClient  *http.Client
-	insecureClient *http.Client
-	clientOnce     sync.Once
-)
-
-func initClients() {
-	clientOnce.Do(func() {
-		// Tune standard HTTP connection pool settings.
-		// MaxIdleConnsPerHost is increased to 100 (from default 2) to permit high concurrency.
-		defaultTransport := &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-
-		insecureTransport := defaultTransport.Clone()
-		insecureTransport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
-		}
-
-		defaultClient = &http.Client{
-			Timeout:   30 * time.Second, // reduced from 300s to prevent hang-ups
-			Transport: defaultTransport,
-		}
-
-		insecureClient = &http.Client{
-			Timeout:   30 * time.Second, // reduced from 300s to prevent hang-ups
-			Transport: insecureTransport,
-		}
-	})
-}
-
-func getClient(insecure bool) *http.Client {
-	initClients()
-	if insecure {
-		return insecureClient
-	}
-	return defaultClient
-}
 
 type HttpResponse struct {
 	StatusCode int
@@ -111,8 +60,6 @@ var IPHeaders = []string{
 }
 
 // GetRequestIP extracts the real public IP from headers, falling back to RemoteAddr.
-// WARNING: This function trusts headers like X-Forwarded-For. It should only be used behind
-// a trusted reverse proxy (e.g. Nginx, Cloudflare, AWS ALB) that sanitizes or overwrites these headers.
 func GetRequestIP(req *http.Request) string {
 	for _, header := range IPHeaders {
 		val := req.Header.Get(header)
@@ -199,8 +146,79 @@ func parseFormUrlEncodedBody(body string) map[string]any {
 	return result
 }
 
-// executeRequest performs HTTP request and returns mapped response.
-func executeRequest(ctx context.Context, client *http.Client, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
+// -------------------------------------------------------------
+// Client Struct with Option Pattern Configuration
+// -------------------------------------------------------------
+
+type Client struct {
+	httpClient *http.Client
+	maxRetries int
+}
+
+type ClientOption func(*Client)
+
+// WithTimeout sets a custom request timeout.
+func WithTimeout(timeout time.Duration) ClientOption {
+	return func(c *Client) {
+		c.httpClient.Timeout = timeout
+	}
+}
+
+// WithMaxRetries sets the maximum retry limit (idempotent requests only).
+func WithMaxRetries(retries int) ClientOption {
+	return func(c *Client) {
+		c.maxRetries = retries
+	}
+}
+
+// WithInsecureTLS configures the client to skip SSL verification.
+func WithInsecureTLS() ClientOption {
+	return func(c *Client) {
+		if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+			cloned := transport.Clone()
+			cloned.TLSClientConfig = &tls.Config{
+				InsecureSkipVerify: true,
+			}
+			c.httpClient.Transport = cloned
+		}
+	}
+}
+
+// NewClient creates a new configured Client.
+func NewClient(opts ...ClientOption) *Client {
+	defaultTransport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: defaultTransport,
+	}
+
+	c := &Client{
+		httpClient: httpClient,
+		maxRetries: 4,
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
+}
+
+// executeRequest performs HTTP request.
+func (c *Client) executeRequest(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
 	var bodyReader io.Reader
 	if body != nil && method != enums.MethodGet {
 		switch v := body.(type) {
@@ -222,14 +240,12 @@ func executeRequest(ctx context.Context, client *http.Client, urlStr string, met
 		return nil, err
 	}
 
-	// Add headers
 	if headers != nil {
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
 	}
 
-	// Add Content-Type if not present and body exists
 	if body != nil && method != enums.MethodGet && req.Header.Get("Content-Type") == "" {
 		finalContentType := contentType
 		if finalContentType == "" {
@@ -238,12 +254,11 @@ func executeRequest(ctx context.Context, client *http.Client, urlStr string, met
 		req.Header.Set("Content-Type", finalContentType.Value())
 	}
 
-	// Add Accept if not present
 	if req.Header.Get("Accept") == "" {
 		req.Header.Set("Accept", "*/*")
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		loggerutils.Error("HTTP request to {} failed: {}", urlStr, err.Error())
 		return nil, exceptions.NewCustomWebServerException(500, "HTTP request failed.", nil)
@@ -279,20 +294,11 @@ func executeRequest(ctx context.Context, client *http.Client, urlStr string, met
 	return customResp, nil
 }
 
-// SendRequest sends standard HTTP request using the shared pool.
-func SendRequest(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
-	client := getClient(false)
-	return executeRequest(ctx, client, urlStr, method, headers, body, contentType)
+// SendRequest sends standard HTTP request.
+func (c *Client) SendRequest(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
+	return c.executeRequest(ctx, urlStr, method, headers, body, contentType)
 }
 
-// DangerousSendRequestWithoutSSL sends HTTP request skipping SSL certificate verification.
-// WARNING: This is insecure and should only be used in dev/test environments.
-func DangerousSendRequestWithoutSSL(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
-	client := getClient(true)
-	return executeRequest(ctx, client, urlStr, method, headers, body, contentType)
-}
-
-// Exponential backoff with jitter calculation.
 func getExponentialBackoffWithJitter(attempt int) time.Duration {
 	baseDelay := 1000 * time.Millisecond * time.Duration(1<<(attempt-1))
 	jitterFactor := 0.2
@@ -302,11 +308,9 @@ func getExponentialBackoffWithJitter(attempt int) time.Duration {
 }
 
 // sendWithRetries implements retry logic for HTTP execution.
-// To prevent double-transaction bugs, non-idempotent methods (POST, PATCH) are not retried unless an Idempotency-Key header is supplied.
-func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, action func() (*HttpResponse, error)) (*HttpResponse, error) {
+func (c *Client) sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, action func() (*HttpResponse, error)) (*HttpResponse, error) {
 	var lastErr error
 
-	// Determine idempotency safety
 	methodUpper := strings.ToUpper(string(method))
 	isIdempotent := methodUpper == "GET" || methodUpper == "PUT" || methodUpper == "DELETE" || methodUpper == "HEAD" || methodUpper == "OPTIONS"
 
@@ -321,20 +325,19 @@ func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod
 	}
 
 	canRetry := isIdempotent || hasIdempotencyKey
-	maxRetries := 4
+	limit := c.maxRetries
 	if !canRetry {
-		maxRetries = 1 // Limit to a single execution for safety
+		limit = 1
 		loggerutils.Info("[HTTP-CLIENT] Request is non-idempotent ({}). Automatic retries are disabled unless an Idempotency-Key header is supplied.", methodUpper)
 	}
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		// Respect context cancellation/timeout
+	for attempt := 1; attempt <= limit; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		if maxRetries > 1 {
-			loggerutils.Info("[HTTP-CLIENT] Attempt {}/{} for request to URL: {}", attempt, maxRetries, urlStr)
+		if limit > 1 {
+			loggerutils.Info("[HTTP-CLIENT] Attempt {}/{} for request to URL: {}", attempt, limit, urlStr)
 		}
 		
 		resp, err := action()
@@ -344,17 +347,14 @@ func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod
 
 		lastErr = err
 
-		// If it's a CustomWebServerException, analyze HTTP status
 		if webErr, ok := err.(*exceptions.CustomWebServerException); ok {
 			statusCode := webErr.ErrorCode
-			// Non-retriable client errors
 			if statusCode >= 400 && statusCode < 500 && statusCode != 429 {
 				loggerutils.Error("[HTTP-CLIENT] Non-retriable client error. Status: {}. Failing immediately.", statusCode)
 				return nil, err
 			}
-			// Rate limiting: wait 15 seconds
 			if statusCode == 429 {
-				if attempt >= maxRetries {
+				if attempt >= limit {
 					break
 				}
 				loggerutils.Warn("[HTTP-CLIENT] Rate limited. Status: 429. Waiting 15 seconds.")
@@ -365,9 +365,8 @@ func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod
 				}
 				continue
 			}
-			// Retriable server errors
 			if statusCode >= 500 && statusCode < 600 {
-				if attempt >= maxRetries {
+				if attempt >= limit {
 					break
 				}
 				delay := getExponentialBackoffWithJitter(attempt)
@@ -382,8 +381,7 @@ func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod
 			return nil, err
 		}
 
-		// Other errors (e.g. network IO errors) are retriable
-		if attempt < maxRetries {
+		if attempt < limit {
 			delay := getExponentialBackoffWithJitter(attempt)
 			loggerutils.Warn("[HTTP-CLIENT] Network IO error: {}. Waiting for {}ms.", err.Error(), delay.Milliseconds())
 			select {
@@ -394,29 +392,21 @@ func sendWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod
 		}
 	}
 
-	if maxRetries > 1 {
-		loggerutils.Error("[HTTP-CLIENT] Request to {} failed after {} attempts.", urlStr, maxRetries)
+	if limit > 1 {
+		loggerutils.Error("[HTTP-CLIENT] Request to {} failed after {} attempts.", urlStr, limit)
 	}
 	return nil, lastErr
 }
 
 // SendRequestWithRetries performs request with retries.
-func SendRequestWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, method, headers, func() (*HttpResponse, error) {
-		return SendRequest(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
+func (c *Client) SendRequestWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
+	return c.sendWithRetries(ctx, urlStr, method, headers, func() (*HttpResponse, error) {
+		return c.SendRequest(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
 	})
 }
 
-// DangerousSendRequestWithoutSSLWithRetries performs insecure request with retries.
-// WARNING: This is insecure and should only be used in dev/test environments.
-func DangerousSendRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, method, headers, func() (*HttpResponse, error) {
-		return DangerousSendRequestWithoutSSL(ctx, urlStr, method, headers, body, enums.ContentTypeJSON)
-	})
-}
-
-// executeMultipartRequest performs multipart form upload using io.Pipe for true OOM-safe streaming.
-func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
+// executeMultipartRequest performs multipart form upload using io.Pipe.
+func (c *Client) executeMultipartRequest(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
 
@@ -430,7 +420,6 @@ func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr st
 			}
 		}()
 
-		// Add text fields
 		if formFields != nil {
 			for k, v := range formFields {
 				if err = writer.WriteField(k, v); err != nil {
@@ -439,7 +428,6 @@ func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr st
 			}
 		}
 
-		// Add file field
 		if file != nil && fileFieldName != "" && !file.IsEmpty() {
 			var part io.Writer
 			part, err = writer.CreateFormFile(fileFieldName, file.GetOriginalFilename())
@@ -447,7 +435,6 @@ func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr st
 				return
 			}
 			
-			// OOM-Safe Stream copying
 			fileReader := file.GetReader()
 			if closer, ok := fileReader.(io.Closer); ok {
 				defer closer.Close()
@@ -476,7 +463,7 @@ func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr st
 		}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, exceptions.NewCustomWebServerException(500, fmt.Sprintf("Multipart request failed: %v", err), nil)
 	}
@@ -512,47 +499,90 @@ func executeMultipartRequest(ctx context.Context, client *http.Client, urlStr st
 }
 
 // SendMultipartRequest sends multipart data.
+func (c *Client) SendMultipartRequest(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
+	return c.executeMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
+}
+
+// SendMultipartRequestWithRetries sends multipart data with retries.
+func (c *Client) SendMultipartRequestWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
+	return c.sendWithRetries(ctx, urlStr, enums.MethodPost, headers, func() (*HttpResponse, error) {
+		return c.SendMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
+	})
+}
+
+// SendRequestForMap sends HTTP request and returns parsed JSON response as map.
+func (c *Client) SendRequestForMap(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (map[string]any, error) {
+	resp, err := c.SendRequest(ctx, urlStr, method, headers, body, contentType)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Map()
+}
+
+// SendRequestWithRetriesForMap sends HTTP request with retries and returns parsed JSON response as map.
+func (c *Client) SendRequestWithRetriesForMap(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (map[string]any, error) {
+	resp, err := c.SendRequestWithRetries(ctx, urlStr, method, headers, body)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Map()
+}
+
+// -------------------------------------------------------------
+// Global HTTP Client Wrapper Functions (Backward Compatibility)
+// -------------------------------------------------------------
+
+var (
+	defaultClient  = NewClient()
+	insecureClient = NewClient(WithInsecureTLS())
+)
+
+// SendRequest sends standard HTTP request using the shared pool.
+func SendRequest(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
+	return defaultClient.SendRequest(ctx, urlStr, method, headers, body, contentType)
+}
+
+// DangerousSendRequestWithoutSSL sends HTTP request skipping SSL certificate verification.
+func DangerousSendRequestWithoutSSL(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (*HttpResponse, error) {
+	return insecureClient.SendRequest(ctx, urlStr, method, headers, body, contentType)
+}
+
+// SendRequestWithRetries performs request with retries.
+func SendRequestWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
+	return defaultClient.SendRequestWithRetries(ctx, urlStr, method, headers, body)
+}
+
+// DangerousSendRequestWithoutSSLWithRetries performs insecure request with retries.
+func DangerousSendRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (*HttpResponse, error) {
+	return insecureClient.SendRequestWithRetries(ctx, urlStr, method, headers, body)
+}
+
+// SendMultipartRequest sends multipart data.
 func SendMultipartRequest(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	client := getClient(false)
-	return executeMultipartRequest(ctx, client, urlStr, headers, formFields, fileFieldName, file)
+	return defaultClient.SendMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
 }
 
 // DangerousSendMultipartRequestWithoutSSL sends multipart data without SSL validation.
-// WARNING: This is insecure and should only be used in dev/test environments.
 func DangerousSendMultipartRequestWithoutSSL(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	client := getClient(true)
-	return executeMultipartRequest(ctx, client, urlStr, headers, formFields, fileFieldName, file)
+	return insecureClient.SendMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
 }
 
 // SendMultipartRequestWithRetries sends multipart data with retries.
 func SendMultipartRequestWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, enums.MethodPost, headers, func() (*HttpResponse, error) {
-		return SendMultipartRequest(ctx, urlStr, headers, formFields, fileFieldName, file)
-	})
+	return defaultClient.SendMultipartRequestWithRetries(ctx, urlStr, headers, formFields, fileFieldName, file)
 }
 
 // DangerousSendMultipartRequestWithoutSSLWithRetries sends multipart data without SSL validation with retries.
-// WARNING: This is insecure and should only be used in dev/test environments.
 func DangerousSendMultipartRequestWithoutSSLWithRetries(ctx context.Context, urlStr string, headers map[string]string, formFields map[string]string, fileFieldName string, file *fileutils.MultipartFile) (*HttpResponse, error) {
-	return sendWithRetries(ctx, urlStr, enums.MethodPost, headers, func() (*HttpResponse, error) {
-		return DangerousSendMultipartRequestWithoutSSL(ctx, urlStr, headers, formFields, fileFieldName, file)
-	})
+	return insecureClient.SendMultipartRequestWithRetries(ctx, urlStr, headers, formFields, fileFieldName, file)
 }
 
 // SendRequestForMap sends standard HTTP request and returns parsed JSON response as a map.
 func SendRequestForMap(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any, contentType enums.ContentType) (map[string]any, error) {
-	resp, err := SendRequest(ctx, urlStr, method, headers, body, contentType)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Map()
+	return defaultClient.SendRequestForMap(ctx, urlStr, method, headers, body, contentType)
 }
 
 // SendRequestWithRetriesForMap sends standard HTTP request with retries and returns parsed JSON response as a map.
 func SendRequestWithRetriesForMap(ctx context.Context, urlStr string, method enums.HttpMethod, headers map[string]string, body any) (map[string]any, error) {
-	resp, err := SendRequestWithRetries(ctx, urlStr, method, headers, body)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Map()
+	return defaultClient.SendRequestWithRetriesForMap(ctx, urlStr, method, headers, body)
 }

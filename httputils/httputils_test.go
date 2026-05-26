@@ -110,3 +110,19 @@ func TestIdempotencyRetries(t *testing.T) {
 		t.Errorf("expected POST with idempotency key to retry 4 times, got: %d", callCount)
 	}
 }
+
+func TestClientOptionsPattern(t *testing.T) {
+	client := NewClient(
+		WithTimeout(100 * time.Millisecond),
+		WithMaxRetries(2),
+		WithInsecureTLS(),
+	)
+
+	if client.maxRetries != 2 {
+		t.Errorf("expected maxRetries 2, got %d", client.maxRetries)
+	}
+
+	if client.httpClient.Timeout != 100 * time.Millisecond {
+		t.Errorf("expected timeout 100ms, got %v", client.httpClient.Timeout)
+	}
+}

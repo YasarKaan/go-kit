@@ -9,7 +9,7 @@ import (
 
 var (
 	emailRegexp      = regexp.MustCompile(`^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$`)
-	urlRegexp        = regexp.MustCompile(`^(https?://)?([\da-z.-]+)\.([a-z.]{2,6})[/\w .-]*/?$`)
+	urlRegexp        = regexp.MustCompile(`^(https?://)?([\da-z.-]+)\.([a-z.]{2,63})[/\w .-]*/?$`)
 	phoneRegexp      = regexp.MustCompile(`^\+?[1-9]\d{1,14}$`)
 	numericRegexp    = regexp.MustCompile(`^\d+$`)
 	alphabeticRegexp = regexp.MustCompile(`^[a-zA-Z]+$`)

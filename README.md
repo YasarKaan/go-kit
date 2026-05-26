@@ -74,9 +74,22 @@ logger.Info("This is an isolated instance")
 ### `httputils`
 HTTP client built on a reusable, tuned transport connection pool (`MaxIdleConnsPerHost = 100`) to avoid socket exhaustion.
 
-- **Safe Retries**: Automatic retries are restricted to **idempotent methods** (`GET`, `HEAD`, `PUT`, `DELETE`). Non-idempotent methods (`POST`, `PATCH`) are **not retried** unless an `Idempotency-Key` header is explicitly provided.
-- **Timeout**: Default client timeout is set to a microservice-appropriate `30` seconds.
+- **Option Pattern Client Configuration**:
+Create customizable, isolated HTTP clients for different microservice targets:
+```go
+import "github.com/YasarKaan/go-kit/httputils"
 
+client := httputils.NewClient(
+    httputils.WithTimeout(10 * time.Second),
+    httputils.WithMaxRetries(3),
+    httputils.WithInsecureTLS(),
+)
+
+resp, err := client.SendRequest(ctx, "https://api.service.com/users", enums.MethodGet, nil, nil, enums.ContentTypeJSON)
+```
+
+- **Global Fallback Helpers**:
+Global functions share a package-level default client pool for convenience:
 ```go
 // Standard Pooled request
 resp, err := httputils.SendRequest(ctx, "https://api.service.com/users", enums.MethodGet, nil, nil, enums.ContentTypeJSON)
@@ -185,29 +198,33 @@ ipStr := validationutils.LongToIp(ipLong) // "192.168.1.1"
 ---
 
 ### `dateutils`
-Date format parsing, calculations, and business day counters using native Go/ISO8601 layout standards with strict error propagation.
+Date format parsing, calculations, and business day counters with automatic layout detection and strict error propagation.
 
-- **Date Formatting & Range Math**:
-Parse and process using native Go time formats (e.g. `"2006-01-02"`):
+- **Layout Auto-Detection & Formatting**:
+Supports common formats (such as ISO8601, RFC3339, and standard layouts like `"YYYY-MM-DD"`, `"DD/MM/YYYY"`). Output dates automatically preserve the input format.
 ```go
 import "github.com/YasarKaan/go-kit/dateutils"
 
-// Parse custom formats using native Go layouts
-isValid := dateutils.IsValid("2026-05-26 12:00:00", "2006-01-02 15:04:05")
+// Auto-detect layout validation
+isValid := dateutils.IsValid("2026-05-26 12:00:00") // true
+isValidCustom := dateutils.IsValidWithLayout("25/05/2026", "02/01/2006")
 
-// Add days or compute relative time (all return errors on parsing failure)
-newDate, err := dateutils.AddDays("2026-05-26", "2006-01-02", 5) // "2026-05-31", nil
-daysDiff, err := dateutils.GetDaysBetween("2026-05-01", "2026-05-10", "2006-01-02", true) // 10, nil
-age, err := dateutils.CalculateAge("1995-10-15", "2006-01-02")
+// Add days (preserves format layout automatically!)
+newDate, err := dateutils.AddDays("2026-05-26", 5) // "2026-05-31", nil
+newDateSlash, err := dateutils.AddDays("20/05/2026", 5) // "25/05/2026", nil
+
+// Date math and range properties
+daysDiff, err := dateutils.GetDaysBetween("2026-05-01", "2026-05-10", true) // 10, nil
+age, err := dateutils.CalculateAge("1995-10-15")
 ```
 
 - **Business Day Utilities**:
 ```go
 // Checks if a date falls on a weekday
-isWorkday, err := dateutils.IsBusinessDay("2026-05-24", "2006-01-02") // false, nil (Sunday)
+isWorkday, err := dateutils.IsBusinessDay("2026-05-24") // false, nil (Sunday)
 
 // Count weekdays between range
-workdays, err := dateutils.CountBusinessDays("2026-05-25", "2026-05-29", "2006-01-02", true) // 5, nil (Mon-Fri)
+workdays, err := dateutils.CountBusinessDays("2026-05-25", "2026-05-29", true) // 5, nil (Mon-Fri)
 ```
 
 ---

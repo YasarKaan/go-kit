@@ -12,8 +12,8 @@ func TestStringValidation(t *testing.T) {
 		t.Error("expected invalid-email to be invalid")
 	}
 
-	if !IsValidUrl("https://google.com") {
-		t.Error("expected https://google.com to be valid URL")
+	if !IsValidUrl("https://google.com") || !IsValidUrl("https://my-awesome-startup.technology") {
+		t.Error("expected valid URLs")
 	}
 	if IsValidUrl("just-a-string") {
 		t.Error("expected just-a-string to be invalid URL")

@@ -5,20 +5,21 @@ import (
 	"time"
 )
 
-func TestDateUtils(t *testing.T) {
-	layout := "2006-01-02"
-
+func TestDateUtilsAutoDetect(t *testing.T) {
 	// IsValid
-	if !IsValid("2026-05-25", layout) {
-		t.Error("expected valid date format")
+	if !IsValid("2026-05-25") {
+		t.Error("expected valid ISO8601 date")
 	}
-	if IsValid("25/05/2026", layout) {
-		t.Error("expected invalid date format")
+	if !IsValid("25/05/2026") {
+		t.Error("expected valid DMY date")
+	}
+	if IsValid("invalid-date") {
+		t.Error("expected invalid")
 	}
 
 	// DateRelativeToToday
 	// "2020-01-01" is in the past
-	rel, err := DateRelativeToToday("2020-01-01", layout)
+	rel, err := DateRelativeToToday("2020-01-01")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -26,13 +27,8 @@ func TestDateUtils(t *testing.T) {
 		t.Errorf("expected -1, got %d", rel)
 	}
 
-	_, err = DateRelativeToToday("invalid", layout)
-	if err == nil {
-		t.Error("expected error for invalid format")
-	}
-
 	// GetDaysBetween
-	days, err := GetDaysBetween("2026-05-20", "2026-05-25", layout, false)
+	days, err := GetDaysBetween("2026-05-20", "2026-05-25", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +36,7 @@ func TestDateUtils(t *testing.T) {
 		t.Errorf("expected 5 days, got: %d", days)
 	}
 
-	daysWithEnd, err := GetDaysBetween("2026-05-20", "2026-05-25", layout, true)
+	daysWithEnd, err := GetDaysBetween("2026-05-20", "2026-05-25", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,18 +44,26 @@ func TestDateUtils(t *testing.T) {
 		t.Errorf("expected 6 days, got: %d", daysWithEnd)
 	}
 
-	// AddDays
-	added, err := AddDays("2026-05-20", layout, 5)
+	// AddDays (checks preservation of format layout)
+	addedDash, err := AddDays("2026-05-20", 5)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if added != "2026-05-25" {
-		t.Errorf("expected 2026-05-25, got: %s", added)
+	if addedDash != "2026-05-25" {
+		t.Errorf("expected 2026-05-25, got: %s", addedDash)
+	}
+
+	addedSlash, err := AddDays("20/05/2026", 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addedSlash != "25/05/2026" {
+		t.Errorf("expected 25/05/2026, got: %s", addedSlash)
 	}
 
 	// GetDayOfWeek
 	// 2026-05-25 is a Monday
-	day, err := GetDayOfWeek("2026-05-25", layout, "tr_TR")
+	day, err := GetDayOfWeek("2026-05-25", "tr_TR")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +72,7 @@ func TestDateUtils(t *testing.T) {
 	}
 
 	// GetLastDayOfMonth
-	lastDay, err := GetLastDayOfMonth("2026-02-15", layout)
+	lastDay, err := GetLastDayOfMonth("2026-02-15")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,9 +81,8 @@ func TestDateUtils(t *testing.T) {
 	}
 
 	// CalculateAge
-	// If born 10 years ago today
 	tenYearsAgo := time.Now().AddDate(-10, 0, 0).Format("2006-01-02")
-	age, err := CalculateAge(tenYearsAgo, layout)
+	age, err := CalculateAge(tenYearsAgo)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +91,7 @@ func TestDateUtils(t *testing.T) {
 	}
 
 	// GetQuarter
-	q, err := GetQuarter("2026-05-25", layout)
+	q, err := GetQuarter("2026-05-25")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,7 +100,7 @@ func TestDateUtils(t *testing.T) {
 	}
 
 	// IsBusinessDay
-	isBiz, err := IsBusinessDay("2026-05-25", layout) // Monday
+	isBiz, err := IsBusinessDay("2026-05-25") // Monday
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +108,7 @@ func TestDateUtils(t *testing.T) {
 		t.Error("expected Monday to be business day")
 	}
 
-	isBizSun, err := IsBusinessDay("2026-05-24", layout) // Sunday
+	isBizSun, err := IsBusinessDay("2026-05-24") // Sunday
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -115,7 +118,7 @@ func TestDateUtils(t *testing.T) {
 
 	// CountBusinessDays
 	// From Monday 2026-05-18 to Friday 2026-05-22 should have 5 business days (inclusive)
-	bizDays, err := CountBusinessDays("2026-05-18", "2026-05-22", layout, true)
+	bizDays, err := CountBusinessDays("2026-05-18", "2026-05-22", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -124,7 +127,7 @@ func TestDateUtils(t *testing.T) {
 	}
 
 	// From Friday 2026-05-22 to Monday 2026-05-25 should have 2 business days (inclusive: Friday, Monday)
-	bizDaysSpan, err := CountBusinessDays("2026-05-22", "2026-05-25", layout, true)
+	bizDaysSpan, err := CountBusinessDays("2026-05-22", "2026-05-25", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
