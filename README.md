@@ -15,7 +15,6 @@
 - **Context-First** — Every HTTP request and logging call propagates `context.Context` for cancellation and distributed tracing.
 - **Secure Defaults** — Bcrypt password hashing, AES-256-GCM encryption, CRLF-injection checks, and safe constant-time HMAC validations.
 - **Connection Reuse** — Reuses a configured global connection pool (transports) to prevent socket/port exhaustion under load.
-- **No JWT Fallback Traps** — Legacy JWT decoding is removed. Instead, services verify pre-authenticated gateway signature headers.
 
 ---
 
