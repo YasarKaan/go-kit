@@ -18,6 +18,21 @@ func TestJSON(t *testing.T) {
 		t.Fatal("expected non-empty JSON string")
 	}
 
+	// Test ObjectToJsonStringE success
+	jsonStrE, err := ObjectToJsonStringE(u)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if jsonStrE != jsonStr {
+		t.Errorf("expected %s, got %s", jsonStr, jsonStrE)
+	}
+
+	// Test ObjectToJsonStringE failure (channels cannot be marshalled to JSON)
+	_, err = ObjectToJsonStringE(make(chan int))
+	if err == nil {
+		t.Error("expected error for unmarshallable object")
+	}
+
 	parsed, err := JsonStringToObject[User](jsonStr)
 	if err != nil {
 		t.Fatalf("unexpected error parsing JSON: %v", err)
@@ -116,6 +131,12 @@ func TestVariableMap(t *testing.T) {
 	_, err = GetStringValueFromMapWithException(data, "non-existent", "missing key error")
 	if err == nil {
 		t.Error("expected exception for missing key")
+	}
+
+	// Test strict casting validation (casting non-numeric "hello" to long must fail)
+	_, err = GetLongValueFromMapWithException(data, "str", "invalid type error")
+	if err == nil {
+		t.Error("expected exception when casting non-numeric string to long")
 	}
 }
 

@@ -31,7 +31,11 @@ func GetStringValueFromMap(m map[string]any, key string) string {
 	if !ok || val == nil {
 		return ""
 	}
-	return cast.ToString(val)
+	parsed, err := cast.ToStringE(val)
+	if err != nil {
+		return ""
+	}
+	return parsed
 }
 
 // GetStringValueFromMapWithDefault extracts string value with a default.
@@ -40,7 +44,11 @@ func GetStringValueFromMapWithDefault(m map[string]any, key string, defaultValue
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToString(val)
+	parsed, err := cast.ToStringE(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetLongValueFromMap extracts int64 value from map.
@@ -49,7 +57,10 @@ func GetLongValueFromMap(m map[string]any, key string) *int64 {
 	if !ok || val == nil {
 		return nil
 	}
-	parsed := cast.ToInt64(val)
+	parsed, err := cast.ToInt64E(val)
+	if err != nil {
+		return nil
+	}
 	return &parsed
 }
 
@@ -59,7 +70,11 @@ func GetLongValueFromMapWithDefault(m map[string]any, key string, defaultValue i
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToInt64(val)
+	parsed, err := cast.ToInt64E(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetDoubleValueFromMap extracts float64 value from map.
@@ -68,7 +83,10 @@ func GetDoubleValueFromMap(m map[string]any, key string) *float64 {
 	if !ok || val == nil {
 		return nil
 	}
-	parsed := cast.ToFloat64(val)
+	parsed, err := cast.ToFloat64E(val)
+	if err != nil {
+		return nil
+	}
 	return &parsed
 }
 
@@ -78,7 +96,11 @@ func GetDoubleValueFromMapWithDefault(m map[string]any, key string, defaultValue
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToFloat64(val)
+	parsed, err := cast.ToFloat64E(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetBooleanValueFromMap extracts bool value from map.
@@ -87,7 +109,10 @@ func GetBooleanValueFromMap(m map[string]any, key string) *bool {
 	if !ok || val == nil {
 		return nil
 	}
-	parsed := cast.ToBool(val)
+	parsed, err := cast.ToBoolE(val)
+	if err != nil {
+		return nil
+	}
 	return &parsed
 }
 
@@ -97,7 +122,11 @@ func GetBooleanValueFromMapWithDefault(m map[string]any, key string, defaultValu
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToBool(val)
+	parsed, err := cast.ToBoolE(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetMapValueFromMap extracts nested map[string]any.
@@ -106,7 +135,11 @@ func GetMapValueFromMap(m map[string]any, key string) map[string]any {
 	if !ok || val == nil {
 		return nil
 	}
-	return cast.ToStringMap(val)
+	parsed, err := cast.ToStringMapE(val)
+	if err != nil {
+		return nil
+	}
+	return parsed
 }
 
 // GetMapValueFromMapWithDefault extracts nested map[string]any with default.
@@ -115,7 +148,11 @@ func GetMapValueFromMapWithDefault(m map[string]any, key string, defaultValue ma
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToStringMap(val)
+	parsed, err := cast.ToStringMapE(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetArrayListValueFromMap extracts slice of any.
@@ -124,7 +161,11 @@ func GetArrayListValueFromMap(m map[string]any, key string) []any {
 	if !ok || val == nil {
 		return nil
 	}
-	return cast.ToSlice(val)
+	parsed, err := cast.ToSliceE(val)
+	if err != nil {
+		return nil
+	}
+	return parsed
 }
 
 // GetArrayListValueFromMapWithDefault extracts slice of any with default.
@@ -133,7 +174,11 @@ func GetArrayListValueFromMapWithDefault(m map[string]any, key string, defaultVa
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToSlice(val)
+	parsed, err := cast.ToSliceE(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // GetIntegerValueFromMap extracts int value from map.
@@ -142,7 +187,10 @@ func GetIntegerValueFromMap(m map[string]any, key string) *int {
 	if !ok || val == nil {
 		return nil
 	}
-	parsed := cast.ToInt(val)
+	parsed, err := cast.ToIntE(val)
+	if err != nil {
+		return nil
+	}
 	return &parsed
 }
 
@@ -152,7 +200,11 @@ func GetIntegerValueFromMapWithDefault(m map[string]any, key string, defaultValu
 	if !ok || val == nil {
 		return defaultValue
 	}
-	return cast.ToInt(val)
+	parsed, err := cast.ToIntE(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 // Helper to create 422 CustomWebServerException errors.
@@ -162,65 +214,93 @@ func err422(msg string) error {
 
 // GetStringValueFromMapWithException extracts string or returns exception.
 func GetStringValueFromMapWithException(m map[string]any, key string, customMessage string) (string, error) {
-	val := GetStringValueFromMap(m, key)
-	if val == "" {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return "", err422(customMessage)
 	}
-	return val, nil
+	parsed, err := cast.ToStringE(val)
+	if err != nil {
+		return "", err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetLongValueFromMapWithException extracts int64 or returns exception.
 func GetLongValueFromMapWithException(m map[string]any, key string, customMessage string) (int64, error) {
-	val := GetLongValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return 0, err422(customMessage)
 	}
-	return *val, nil
+	parsed, err := cast.ToInt64E(val)
+	if err != nil {
+		return 0, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetDoubleValueFromMapWithException extracts float64 or returns exception.
 func GetDoubleValueFromMapWithException(m map[string]any, key string, customMessage string) (float64, error) {
-	val := GetDoubleValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return 0.0, err422(customMessage)
 	}
-	return *val, nil
+	parsed, err := cast.ToFloat64E(val)
+	if err != nil {
+		return 0.0, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetBooleanValueFromMapWithException extracts bool or returns exception.
 func GetBooleanValueFromMapWithException(m map[string]any, key string, customMessage string) (bool, error) {
-	val := GetBooleanValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return false, err422(customMessage)
 	}
-	return *val, nil
+	parsed, err := cast.ToBoolE(val)
+	if err != nil {
+		return false, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetIntegerValueFromMapWithException extracts int or returns exception.
 func GetIntegerValueFromMapWithException(m map[string]any, key string, customMessage string) (int, error) {
-	val := GetIntegerValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return 0, err422(customMessage)
 	}
-	return *val, nil
+	parsed, err := cast.ToIntE(val)
+	if err != nil {
+		return 0, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetMapValueFromMapWithException extracts map[string]any or returns exception.
 func GetMapValueFromMapWithException(m map[string]any, key string, customMessage string) (map[string]any, error) {
-	val := GetMapValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return nil, err422(customMessage)
 	}
-	return val, nil
+	parsed, err := cast.ToStringMapE(val)
+	if err != nil {
+		return nil, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetArrayListValueFromMapWithException extracts []any or returns exception.
 func GetArrayListValueFromMapWithException(m map[string]any, key string, customMessage string) ([]any, error) {
-	val := GetArrayListValueFromMap(m, key)
-	if val == nil {
+	val, ok := m[key]
+	if !ok || val == nil {
 		return nil, err422(customMessage)
 	}
-	return val, nil
+	parsed, err := cast.ToSliceE(val)
+	if err != nil {
+		return nil, err422(customMessage)
+	}
+	return parsed, nil
 }
 
 // GetUUIDValueFromMap extracts UUID from map.

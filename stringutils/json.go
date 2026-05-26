@@ -19,6 +19,18 @@ func ObjectToJsonString(obj any) string {
 	return string(bytes)
 }
 
+// ObjectToJsonStringE converts any object to a JSON string, returning any marshalling errors.
+func ObjectToJsonStringE(obj any) (string, error) {
+	if obj == nil {
+		return "", nil
+	}
+	bytes, err := json.Marshal(obj)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
 // JsonStringToObject parses a JSON string into a variable of type T.
 func JsonStringToObject[T any](jsonStr string) (T, error) {
 	var target T
