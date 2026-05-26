@@ -1,0 +1,25 @@
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - gosec
+    - staticcheck
+    - errcheck
+    - unused
+    - govet
+    - gosimple
+    - ineffassign
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  gosec:
+    excludes:
+      - G401 # MD5 use is explicitly renamed to HashMD5Insecure to mark it insecure
+      - G501 # MD5 blocklist is accepted as long as it is named insecure
