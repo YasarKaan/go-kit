@@ -85,8 +85,8 @@ func TestIPValidation(t *testing.T) {
 		t.Error("expected valid IP")
 	}
 
-	if !IsPrivateIP("10.0.0.5") || !IsPrivateIP("172.16.100.1") || !IsPrivateIP("192.168.1.50") {
-		t.Error("expected private IPs")
+	if !IsPrivateIP("10.0.0.5") || !IsPrivateIP("172.16.100.1") || !IsPrivateIP("192.168.1.50") || !IsPrivateIP("fc00::1") {
+		t.Error("expected private IPs (including IPv6 ULA)")
 	}
 	if IsPrivateIP("8.8.8.8") {
 		t.Error("expected public IP not to be private")
